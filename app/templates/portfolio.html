@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>TradingBot — Portfolio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Bootstrap (CDN) -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+    crossorigin="anonymous"
+  />
+<style>
+  :root {
+    --bg: #0c1118;          /* page */
+    --panel: #111826;       /* cards */
+    --panel-border: #243041;/* borders */
+    --text: #e8edf3;        /* primary text */
+    --text-muted: #b7c2cf;  /* secondary text (lighter than before) */
+    --table-head: #1a2332;
+    --table-row: #121a28;
+    --table-row-alt: #152032;
+    --green: #17b26a;
+    --green-ink: #062a1a;
+    --red: #f04438;
+    --red-ink: #2c0b0b;
+  }
+
+  body { background: var(--bg); color: var(--text); }
+  .muted { color: var(--text-muted); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  .card { background: var(--panel); border: 1px solid var(--panel-border); }
+  .card .card-body { color: var(--text); }
+
+  /* Table */
+  .table-dark { --bs-table-color: var(--text); --bs-table-bg: transparent; }
+  .table-dark thead th { background: var(--table-head); color: var(--text); border-color: var(--panel-border); }
+  .table-dark tbody tr { background: var(--table-row); }
+  .table-dark tbody tr:nth-child(odd) { background: var(--table-row-alt); }
+  .table-dark td, .table-dark th { border-color: var(--panel-border); }
+
+  /* Badges with stronger contrast */
+  .badge-up   { background: var(--green-ink); color: var(--text); border: 1px solid var(--green); }
+  .badge-down { background: var(--red-ink);   color: var(--text); border: 1px solid var(--red); }
+
+  /* Section headers */
+  .section-title { color: var(--text); opacity: 0.95; }
+</style>
+
+</head>
+<body class="p-3">
+  <div class="container-fluid">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h1 class="h3 mb-0">TradingBot — Portfolio</h1>
+      <div class="d-flex align-items-center gap-3">
+        <span class="muted small">Auto-refresh</span>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="autoRefresh" checked />
+        </div>
+        <select id="interval" class="form-select form-select-sm" style="width:120px">
+          <option value="3">3s</option>
+          <option value="5" selected>5s</option>
+          <option value="10">10s</option>
+        </select>
+        <button class="btn btn-sm btn-outline-light" id="refreshBtn">Refresh</button>
+        <span class="mono small muted" id="tfTag"></span>
+      </div>
+    </div>
+
+    <div id="summary" class="mb-3"></div>
+
+    <div id="prices" class="mb-3"></div>
+
+    <!-- Symbol filter shared by both cards -->
+    <div class="card mb-3">
+      <div class="card-body d-flex flex-wrap gap-3 align-items-center">
+        <h2 class="h6 mb-0 section-title">Filter</h2>
+        <div class="d-flex align-items-center gap-2">
+          <label for="symFilter" class="muted small">Symbol</label>
+          <select id="symFilter" class="form-select form-select-sm" style="width: 160px;">
+            <option value="">All</option>
+            <option>BTC_USDT</option>
+            <option>ETH_USDT</option>
+            <option>SOL_USDT</option>
+          </select>
+        </div>
+        <div class="ms-auto mono small muted" id="filterNote"></div>
+      </div>
+    </div>
+
+    <div id="positions" class="mb-3"></div>
+    <div id="roundtrips" class="mb-3"></div>
+
+    <div id="strategies" class="row g-3"></div>
+  </div>
+
+  <script>
+    const fmt2 = (x) => Number(x).toFixed(2);
+    const pct = (x) => (Number(x) * 100).toFixed(2) + "%";
+
+    const fmtTs = (ts) => new Date(ts * 1000).toLocaleString();
+    const money = (x) => "$" + Number(x).toFixed(2);
+
+    // --- Live prices ---
+    let currentPrices = {}; // { "BTC_USDT": {price, ts}, ... }
+
+    function renderPrices(items) {
+      const rows = items.map(p => `
+        <tr>
+          <td class="mono">${p.symbol}</td>
+          <td class="mono">${p.price == null ? "-" : Number(p.price).toFixed(4)}</td>
+          <td class="mono">${p.ts ? new Date(p.ts*1000).toLocaleTimeString() : "-"}</td>
+        </tr>
+      `).join("");
+
+      document.getElementById("prices").innerHTML = `
+        <div class="card"><div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h2 class="h5 mb-0 section-title">Live Prices</h2>
+            <div class="mono small muted">${new Date().toLocaleTimeString()}</div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-dark table-striped align-middle">
+              <thead><tr><th>Symbol</th><th>Price</th><th>As of</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div></div>
+      `;
+    }
+
+    async function loadPrices() {
+      const res = await fetch("/prices.json", { cache: "no-store" });
+      const data = await res.json();
+      currentPrices = {};
+      (data.items || []).forEach(p => { currentPrices[p.symbol] = { price: p.price, ts: p.ts }; });
+      renderPrices(data.items || []);
+      // refresh positions so unrealized PnL uses the latest prices
+      loadPositions();
+    }
+
+    function renderPositions(items) {
+      const rows = items.map(p => {
+        const mark = currentPrices[p.symbol]?.price;
+        let unreal = "-";
+        if (mark != null) {
+          const qty = Number(p.qty);
+          const avg = Number(p.avg_cost);
+          const sideLong = p.side === "LONG";
+          const pnl = sideLong ? (mark - avg) * qty : (avg - mark) * qty;
+          unreal = "$" + pnl.toFixed(2);
+        }
+        return `
+          <tr>
+            <td class="mono">${new Date(p.open_ts*1000).toLocaleString()}</td>
+            <td class="mono">${p.bot}</td>
+            <td class="mono">${p.manager ?? "-"}</td>
+            <td class="mono">${p.symbol}</td>
+            <td class="mono">${p.side}</td>
+            <td class="mono">${Number(p.qty).toFixed(6)}</td>
+            <td class="mono">${Number(p.avg_cost).toFixed(4)}</td>
+            <td class="mono">${unreal}</td>
+          </tr>
+        `;
+      }).join("");
+
+      document.getElementById("positions").innerHTML = `
+        <div class="card"><div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h2 class="h5 mb-0 section-title">Open Positions</h2>
+            <div class="mono small muted">count ${items.length}</div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-dark table-striped align-middle">
+              <thead><tr>
+                <th>Opened</th><th>Bot</th><th>Manager</th><th>Symbol</th>
+                <th>Side</th><th>Qty</th><th>Avg Cost</th><th>Unrealized</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div></div>`;
+    }
+
+    async function loadPositions() {
+      const sel = document.getElementById("symFilter");
+      const symbol = sel && sel.value ? `?symbol=${encodeURIComponent(sel.value)}` : "";
+      const res = await fetch(`/positions.json${symbol}`, { cache: "no-store" });
+      const data = await res.json();
+      renderPositions(data.items || []);
+    }
+
+    function renderRoundtrips(items) {
+      const rows = items.map(rt => `
+        <tr>
+          <td class="mono">${new Date(rt.open_ts*1000).toLocaleString()}</td>
+          <td class="mono">${new Date(rt.close_ts*1000).toLocaleString()}</td>
+          <td class="mono">${rt.bot}</td>
+          <td class="mono">${rt.manager ?? "-"}</td>
+          <td class="mono">${rt.symbol}</td>
+          <td class="mono">${rt.side}</td>
+          <td class="mono">${Number(rt.qty).toFixed(6)}</td>
+          <td class="mono">${rt.entry_price.toFixed(4)}</td>
+          <td class="mono">${rt.exit_price.toFixed(4)}</td>
+          <td class="mono">${(rt.pnl).toFixed(2)}</td>
+          <td class="mono">${(rt.pnl_pct*100).toFixed(2)}%</td>
+          <td class="mono">${(rt.duration_s/60).toFixed(1)}m</td>
+        </tr>
+      `).join("");
+      document.getElementById("roundtrips").innerHTML = `
+        <div class="card"><div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h2 class="h5 mb-0 section-title">Closed Trades</h2>
+            <div class="mono small muted">latest ${items.length}</div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-dark table-striped align-middle">
+              <thead><tr>
+                <th>Opened</th><th>Closed</th><th>Bot</th><th>Manager</th><th>Symbol</th>
+                <th>Side</th><th>Qty</th><th>Entry</th><th>Exit</th><th>PNL $</th><th>PNL %</th><th>Hold</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div></div>`;
+    }
+
+    async function loadRoundtrips() {
+      const sel = document.getElementById("symFilter");
+      const symbol = sel && sel.value ? `?symbol=${encodeURIComponent(sel.value)}` : "";
+      const res = await fetch(`/roundtrips.json${symbol}`, { cache: "no-store" });
+      const data = await res.json();
+      renderRoundtrips(data.items || []);
+    }
+
+    // hook up the filter
+    document.getElementById("symFilter").addEventListener("change", () => {
+      const sel = document.getElementById("symFilter");
+      document.getElementById("filterNote").textContent = sel.value ? `symbol: ${sel.value}` : "symbol: all";
+      loadPositions();
+      loadRoundtrips();
+    });
+
+    function renderSummary(snap) {
+      const totalEq = snap.strategies.reduce((a, s) =>
+        a + s.bots.reduce((bacc, b) => bacc + Number(b.equity), 0), 0
+      );
+      const totalTrades = snap.strategies.reduce((a, s) =>
+        a + s.bots.reduce((bacc, b) => bacc + Number(b.trades), 0), 0
+      );
+      document.getElementById("summary").innerHTML = `
+        <div class="card">
+          <div class="card-body d-flex justify-content-between align-items-center">
+            <div class="mono">Total equity: <strong>$${fmt2(totalEq)}</strong></div>
+            <div class="mono">Total trades: <strong>${totalTrades}</strong></div>
+            <div class="muted small">Last update: <span id="lastUpdate">${new Date().toLocaleTimeString()}</span></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function badge(val) {
+      const c = Number(val);
+      const cls = c >= 0 ? "badge-up" : "badge-down";
+      const sign = c >= 0 ? "+" : "";
+      return `<span class="badge ${cls}">${sign}${pct(c)}</span>`;
+    }
+
+    function renderStrategies(snap) {
+      const root = document.getElementById("strategies");
+      root.innerHTML = "";
+      snap.strategies.forEach((s) => {
+        const stratEq = s.bots.reduce((acc, b) => acc + Number(b.equity), 0);
+        const rows = s.bots.map(b => `
+          <tr>
+            <td class="mono">${b.name}</td>
+            <td class="mono">${b.symbol}</td>
+            <td>${b.tf}</td>
+            <td class="mono">$${fmt2(b.equity)}</td>
+            <td>${badge(b.score)}</td>
+            <td class="mono">${b.trades_db ?? b.trades}</td>
+          </tr>
+        `).join("");
+
+        const html = `
+          <div class="col-12">
+            <div class="card h-100">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <h2 class="h5 mb-0 text-capitalize">${s.name.replaceAll("_"," ")}</h2>
+                  <div class="mono small">Equity: $${fmt2(stratEq)}</div>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-sm table-dark table-striped align-middle">
+                    <thead>
+                      <tr>
+                        <th>Bot</th>
+                        <th>Symbol</th>
+                        <th>TF</th>
+                        <th>Equity</th>
+                        <th>Score</th>
+                        <th>Trades</th>
+                      </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        root.insertAdjacentHTML("beforeend", html);
+      });
+    }
+
+    async function load() {
+      const res = await fetch("/portfolio.json", { cache: "no-store" });
+      const snap = await res.json();
+      renderSummary(snap);
+      renderStrategies(snap);
+    }
+
+    // Refresh controls
+    let timer = null;
+    const intervalSel = document.getElementById("interval");
+    const autoChk = document.getElementById("autoRefresh");
+    const refreshBtn = document.getElementById("refreshBtn");
+    tfTag.textContent = "TF: 5m"
+
+    function startLoop() {
+      stopLoop();
+      const ms = Number(intervalSel.value) * 1000;
+      timer = setInterval(() => {
+        load();
+        loadPrices();
+        loadPositions();
+        loadRoundtrips();
+      }, ms);
+    }
+
+    function stopLoop() {
+      if (timer) { clearInterval(timer); timer = null; }
+    }
+
+    autoChk.addEventListener("change", () => {
+      autoChk.checked ? startLoop() : stopLoop();
+    });
+    intervalSel.addEventListener("change", () => {
+      if (autoChk.checked) startLoop();
+    });
+    refreshBtn.addEventListener("click", load);
+
+    // initial
+    Promise.all([load(), loadPrices(), loadPositions(), loadRoundtrips()]).then(() => {
+      if (autoChk.checked) startLoop();
+    });
+</script>
+</body>
+</html>
