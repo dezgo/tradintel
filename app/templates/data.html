@@ -38,7 +38,7 @@
   .table-dark td, .table-dark th { border-color: var(--panel-border); }
 
   /* Forms */
-  .form-label { color: var(--text-muted); font-size: 0.875rem; }
+  .form-label { color: var(--text); font-size: 0.875rem; font-weight: 500; }
   .form-control, .form-select {
     background: var(--panel);
     border-color: var(--panel-border);
@@ -58,11 +58,17 @@
     background-color: var(--blue);
     border-color: var(--blue);
   }
+  .form-check-label { color: var(--text); }
+  .form-text { color: var(--text-muted) !important; }
 
   .section-title { color: var(--text); opacity: 0.95; }
 
-  .status-ok { color: #17b26a; }
-  .status-error { color: #f04438; }
+  .status-ok { color: #17b26a; font-weight: 500; }
+  .status-error { color: #f04438; font-weight: 500; }
+
+  /* Alerts */
+  .alert-warning { background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.3); color: #fbbf24; }
+  .alert-danger { background: rgba(240, 68, 56, 0.15); border-color: rgba(240, 68, 56, 0.3); color: #f87171; }
 </style>
 
 </head>
