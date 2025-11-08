@@ -1,61 +1,81 @@
+# ───────────────────────────────────────────────────────────────────────────────
+# app/portfolio.py (hydrate from DB on startup)
 from __future__ import annotations
 
-import threading
-import time
-from typing import Dict, Any, List
-
+from typing import List
+from app.core import DataProvider
+from app.data import GateAdapter
+from app.execution import PaperExec
 from app.bots import TradingBot
+from app.managers import StrategyManager, PortfolioManager
+from app.strategies import MeanReversion, Breakout, TrendFollow, MR_GRID, BO_GRID, TF_GRID
+from app.storage import store
+
+SYMBOLS = ["BTC_USDT", "ETH_USDT", "SOL_USDT"]
+TF = "1m"
 
 
-class Portfolio:
-    def __init__(self, data_provider) -> None:
-        # Start minimal: 1 bot on BTC/USDT 1h with $1k allocation
-        self.bots: List[TradingBot] = [
-            TradingBot(
-                name="mr_btc_1h",
-                symbol="BTC_USDT",
-                tf="1h",
-                data=data_provider,
-                allocation=1000.0,
+def _apply_saved_state(bots: list) -> None:
+    saved = store.load_bots()
+    for b in bots:
+        row = saved.get(b.name)
+        if not row:
+            # brand-new bot: record its params and seed the bots table
+            params = b.strategy.to_params() if hasattr(b.strategy, "to_params") else {}
+            store.record_params(b.name, type(b.strategy).__name__, params)
+            store.upsert_bot(
+                name=b.name,
+                manager=None,  # will be filled by StrategyManager on first step
+                symbol=b.symbol,
+                tf=b.tf,
+                strategy=type(b.strategy).__name__,
+                params=params,
+                allocation=b.allocation,
+                cash=b.metrics.cash,
+                pos_qty=b.metrics.pos_qty,
+                avg_price=b.metrics.avg_price,
+                equity=b.metrics.equity,
+                score=b.metrics.score,
+                trades=b.metrics.trades,
             )
-        ]
-        self._running = False
-        self._thread: threading.Thread | None = None
+            continue
 
-    def start(self, interval_sec: int = 30) -> None:
-        if self._running:
-            return
-        self._running = True
-        self._thread = threading.Thread(target=self._loop, args=(interval_sec,), daemon=True)
-        self._thread.start()
+        # hydrate existing bot state
+        b.allocation        = float(row["allocation"])
+        b.metrics.cash      = float(row["cash"])
+        b.metrics.pos_qty   = float(row["pos_qty"])
+        b.metrics.avg_price = float(row["avg_price"])
+        b.metrics.equity    = float(row["equity"]) or b.metrics.cash
+        b.metrics.score     = float(row["score"])
+        b.metrics.trades    = int(row["trades"])
 
-    def stop(self) -> None:
-        self._running = False
 
-    def _loop(self, interval_sec: int) -> None:
-        while self._running:
-            for b in self.bots:
-                try:
-                    b.step()
-                except Exception:
-                    # keep MVP resilient; add logging later
-                    pass
-            time.sleep(interval_sec)
+def build_portfolio(data_provider: DataProvider | None = None) -> PortfolioManager:
+    data = data_provider or GateAdapter()
 
-    def summary(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {"bots": []}
-        for b in self.bots:
-            s = b.state
-            out["bots"].append(
-                {
-                    "name": b.name,
-                    "symbol": b.symbol,
-                    "tf": b.tf,
-                    "cash_alloc": round(s.cash_alloc, 2),
-                    "position_qty": round(s.position_qty, 6),
-                    "avg_price": round(s.avg_price, 2),
-                    "last_signal": (s.last_signal.direction if s.last_signal else None),
-                    "signal_meta": (s.last_signal.meta if s.last_signal else None),
-                }
-            )
-        return out
+    bots_mr: List[TradingBot] = []
+    bots_bo: List[TradingBot] = []
+    bots_tf: List[TradingBot] = []
+
+    for sym in SYMBOLS:
+        for idx, p in enumerate(MR_GRID, start=1):
+            name = f"mr_{sym.lower()}_{TF}_p{idx}"
+            bots_mr.append(TradingBot(name, sym, TF, MeanReversion(**p), data, PaperExec(name), 1000.0))
+    for sym in SYMBOLS:
+        for idx, p in enumerate(BO_GRID, start=1):
+            name = f"bo_{sym.lower()}_{TF}_p{idx}"
+            bots_bo.append(TradingBot(name, sym, TF, Breakout(**p), data, PaperExec(name), 1000.0))
+    for sym in SYMBOLS:
+        for idx, p in enumerate(TF_GRID, start=1):
+            name = f"tf_{sym.lower()}_{TF}_p{idx}"
+            bots_tf.append(TradingBot(name, sym, TF, TrendFollow(**p), data, PaperExec(name), 1000.0))
+
+    # hydrate from DB (allocations, cash/positions, scores)
+    _apply_saved_state([*bots_mr, *bots_bo, *bots_tf])
+
+    m1 = StrategyManager(name="mean_reversion", bots=bots_mr, min_alloc_frac=0.05, max_alloc_frac=0.70)
+    m2 = StrategyManager(name="breakout", bots=bots_bo, min_alloc_frac=0.05, max_alloc_frac=0.70)
+    m3 = StrategyManager(name="trend_follow", bots=bots_tf, min_alloc_frac=0.05, max_alloc_frac=0.70)
+
+    return PortfolioManager(managers=[m1, m2, m3], min_alloc_frac=0.10, max_alloc_frac=0.60)
+

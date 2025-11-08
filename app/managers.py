@@ -1,47 +1,126 @@
+# ───────────────────────────────────────────────────────────────────────────────
 # app/managers.py
-
-from typing import List
+from __future__ import annotations
 from dataclasses import dataclass
+from typing import List, Dict
+from app.bots import TradingBot
+from app.storage import store
+
 
 @dataclass
-class Performance:
-    pnl: float
-    sharpe: float
-    drawdown: float
-
 class StrategyManager:
-    def __init__(self, name: str, bots: List[TradingBot], min_alloc=0.1, max_alloc=0.8):
-        self.name = name
-        self.bots = bots
-        self.min_alloc = min_alloc
-        self.max_alloc = max_alloc
+    name: str
+    bots: List[TradingBot]
+    min_alloc_frac: float = 0.05
+    max_alloc_frac: float = 0.80
 
-    def step(self):
+    def step(self) -> None:
+        # 1) Ensure bots exist in DB BEFORE any trades happen
+        for b in self.bots:
+            store.upsert_bot(
+                name=b.name,
+                manager=self.name,
+                symbol=b.symbol,
+                tf=b.tf,
+                strategy=type(b.strategy).__name__,
+                params=(b.strategy.to_params() if hasattr(b.strategy, "to_params") else {}),
+                allocation=b.allocation,
+                cash=b.metrics.cash,
+                pos_qty=b.metrics.pos_qty,
+                avg_price=b.metrics.avg_price,
+                equity=b.metrics.equity,
+                score=b.metrics.score,
+                trades=b.metrics.trades,
+            )
+
+        # 2) Run bots (may record trades now that bot rows exist)
         for b in self.bots:
             b.step()
 
-    def rebalance_within_team(self):
-        # toy rule: weight by last 7d Sharpe (persist later)
-        # for now, weight equally if no stats
-        total = sum(b.state.cash_alloc for b in self.bots) or 1.0
-        target_each = total / len(self.bots)
+        # 3) Rebalance and persist updated state
+        self._rebalance_within_strategy()
         for b in self.bots:
-            b.state.cash_alloc = target_each
+            store.upsert_bot(
+                name=b.name,
+                manager=self.name,
+                symbol=b.symbol,
+                tf=b.tf,
+                strategy=type(b.strategy).__name__,
+                params=(b.strategy.to_params() if hasattr(b.strategy, "to_params") else {}),
+                allocation=b.allocation,
+                cash=b.metrics.cash,
+                pos_qty=b.metrics.pos_qty,
+                avg_price=b.metrics.avg_price,
+                equity=b.metrics.equity,
+                score=b.metrics.score,
+                trades=b.metrics.trades,
+            )
 
+    def _rebalance_within_strategy(self) -> None:
+        scores = [max(0.0, b.metrics.score) for b in self.bots]
+        total = sum(scores) or 1.0
+        fracs = [s / total for s in scores]
+        # clamp
+        fracs = [min(self.max_alloc_frac, max(self.min_alloc_frac, f)) for f in fracs]
+        # renormalize
+        s = sum(fracs)
+        fracs = [f / s for f in fracs]
+        # apply new target allocations proportionally to current strategy AUM
+        strat_equity = sum(b.metrics.equity for b in self.bots)
+        for b, f in zip(self.bots, fracs):
+            b.allocation = strat_equity * f
+
+
+@dataclass
 class PortfolioManager:
-    def __init__(self, managers: List[StrategyManager]):
-        self.managers = managers
+    managers: List[StrategyManager]
+    min_alloc_frac: float = 0.10
+    max_alloc_frac: float = 0.70
 
-    def step(self):
+    def step(self) -> None:
         for m in self.managers:
             m.step()
+        self._rebalance_across_strategies()
 
-    def global_rebalance(self):
-        # toy: equal weight teams; replace with performance-based
-        total = sum(sum(b.state.cash_alloc for b in m.bots) for m in self.managers) or 1.0
-        per_team = total / len(self.managers)
-        for m in self.managers:
-            team_total = sum(b.state.cash_alloc for b in m.bots) or 1.0
-            scale = per_team / team_total
-            for b in m.bots:
-                b.state.cash_alloc *= scale
+    def snapshot(self) -> Dict:
+        counts = store.trade_counts()  # DB authoritative counts
+        return {
+            "strategies": [
+                {
+                    "name": m.name,
+                    "equity": sum(b.metrics.equity for b in m.bots),
+                    "bots": [
+                        {
+                            "name": b.name,
+                            "symbol": b.symbol,
+                            "tf": b.tf,
+                            "equity": b.metrics.equity,
+                            "score": b.metrics.score,
+                            "trades": b.metrics.trades,
+                            "trades_db": counts.get(b.name, 0),  # from SQLite
+                        }
+                        for b in m.bots
+                    ],
+                }
+                for m in self.managers
+            ]
+        }
+
+    def _rebalance_across_strategies(self) -> None:
+        equities = [sum(b.metrics.equity for b in m.bots) for m in self.managers]
+        scores = [max(0.0, sum(b.metrics.score for b in m.bots) / max(1, len(m.bots))) for m in self.managers]
+        total_score = sum(scores) or 1.0
+        fracs = [s / total_score for s in scores]
+        fracs = [min(self.max_alloc_frac, max(self.min_alloc_frac, f)) for f in fracs]
+        s = sum(fracs)
+        fracs = [f / s for f in fracs]
+        total_equity = sum(equities)
+        targets = [total_equity * f for f in fracs]
+        # push targets down to bots proportionally to their current weights inside the strategy
+        for m, target in zip(self.managers, targets):
+            bot_equities = [b.metrics.equity for b in m.bots]
+            subtotal = sum(bot_equities) or 1.0
+            for b, eq in zip(m.bots, bot_equities):
+                share = eq / subtotal
+                b.allocation = target * share
+

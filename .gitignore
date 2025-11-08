@@ -1,1 +1,12 @@
-app/data/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.cpython-*
+.venv/
+trading.db
+.env
+
+# IDE
+.idea/
+.vscode/
