@@ -108,9 +108,29 @@
             <button type="submit" class="btn btn-primary w-100 mb-2" id="runBtn">
               Run Backtest
             </button>
-            <button type="button" class="btn btn-outline-primary w-100" id="saveBtn" onclick="saveCurrentConfig()">
-              Save Configuration
-            </button>
+
+            <!-- Active strategy indicator -->
+            <div id="activeStrategyIndicator" class="alert alert-info p-2 mb-2 small" style="display: none;">
+              <div class="d-flex align-items-center justify-content-between">
+                <div>
+                  <strong>Editing:</strong> <span id="activeStrategyName"></span>
+                  <span class="badge bg-secondary ms-1">auto-save</span>
+                </div>
+                <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none" onclick="newStrategy()" title="Start new configuration">
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-outline-primary flex-grow-1" onclick="cloneStrategy()">
+                Clone
+              </button>
+              <button type="button" class="btn btn-outline-primary flex-grow-1" onclick="newStrategy()">
+                New
+              </button>
+            </div>
           </form>
         </div>
       </div>
@@ -267,6 +287,11 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     let equityChart = null;
+
+    // Active strategy tracking for auto-save
+    let activeStrategyId = null;
+    let activeStrategyName = null;
+    let autoSaveTimeout = null;
 
     // Strategy parameters configuration
     const strategyParams = {
@@ -660,7 +685,7 @@
       const container = document.getElementById('savedStrategies');
 
       if (saved.length === 0) {
-        container.innerHTML = '<div class="small text-muted">No saved strategies yet. Click "Save Configuration" to save one.</div>';
+        container.innerHTML = '<div class="small text-muted">No saved strategies yet. Load a preset, adjust it, then click "Clone" to save a variant.</div>';
         return;
       }
 
@@ -681,17 +706,71 @@
     }
 
     function loadSavedConfig(saved) {
+      // Set as active strategy for auto-save
+      activeStrategyId = saved.id;
+      activeStrategyName = saved.name;
+
+      // Show active indicator
+      document.getElementById('activeStrategyName').textContent = saved.name;
+      document.getElementById('activeStrategyIndicator').style.display = 'block';
+
       loadConfig(saved);
     }
 
-    async function saveCurrentConfig() {
+    // Auto-save with debouncing (saves after 1 second of no changes)
+    function autoSave() {
+      // Only auto-save if we have an active strategy
+      if (!activeStrategyId || !activeStrategyName) return;
+
+      const strategy = document.getElementById('strategy').value;
+      if (!strategy) return;
+
+      // Clear existing timeout
+      if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+      }
+
+      // Debounce: save after 1 second of no changes
+      autoSaveTimeout = setTimeout(async () => {
+        // Collect current config
+        const params = {};
+        const paramInputs = document.querySelectorAll('#paramsInputs input');
+        paramInputs.forEach(input => {
+          const value = input.type === 'number' ? parseFloat(input.value) : input.value;
+          params[input.name] = value;
+        });
+
+        const config = {
+          name: activeStrategyName,
+          strategy: strategy,
+          symbol: document.getElementById('symbol').value,
+          timeframe: document.getElementById('timeframe').value,
+          params: params,
+          initial_capital: parseFloat(document.getElementById('initialCapital').value),
+          min_notional: parseFloat(document.getElementById('minNotional').value),
+        };
+
+        try {
+          await fetch('/backtest/saved', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+          });
+          // Silent save - don't show alerts
+        } catch (e) {
+          console.error('Auto-save failed:', e);
+        }
+      }, 1000);
+    }
+
+    async function cloneStrategy() {
       const strategy = document.getElementById('strategy').value;
       if (!strategy) {
-        alert('Please select a strategy first');
+        alert('Please configure a strategy first');
         return;
       }
 
-      const name = prompt('Enter a name for this configuration:');
+      const name = prompt('Enter a name for the cloned configuration:');
       if (!name) return;
 
       // Collect current config
@@ -721,14 +800,36 @@
 
         const data = await res.json();
         if (data.error) {
-          alert('Error saving: ' + data.error);
+          alert('Error cloning: ' + data.error);
         } else {
-          alert('Configuration saved!');
+          // Set the clone as the new active strategy
+          activeStrategyId = data.id;
+          activeStrategyName = name;
+          document.getElementById('activeStrategyName').textContent = name;
+          document.getElementById('activeStrategyIndicator').style.display = 'block';
+
+          // Refresh the saved strategies list
           loadSavedStrategies();
         }
       } catch (e) {
-        alert('Error saving: ' + e.message);
+        alert('Error cloning: ' + e.message);
       }
+    }
+
+    function newStrategy() {
+      // Clear active strategy
+      activeStrategyId = null;
+      activeStrategyName = null;
+      document.getElementById('activeStrategyIndicator').style.display = 'none';
+
+      // Reset form to defaults
+      document.getElementById('strategy').value = '';
+      document.getElementById('symbol').value = 'BTC_USDT';
+      document.getElementById('timeframe').value = '5m';
+      document.getElementById('days').value = '3';
+      document.getElementById('initialCapital').value = '1000';
+      document.getElementById('minNotional').value = '100';
+      document.getElementById('paramsInputs').innerHTML = '<div class="text-muted small">Select a strategy to see parameters</div>';
     }
 
     async function deleteSavedStrategy(id) {
@@ -748,7 +849,30 @@
       }
     }
 
+    // Add auto-save event listeners to all form inputs
+    function setupAutoSave() {
+      const formInputs = [
+        'strategy', 'symbol', 'timeframe', 'days',
+        'initialCapital', 'minNotional'
+      ];
+
+      formInputs.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+          element.addEventListener('change', autoSave);
+        }
+      });
+
+      // Also listen to parameter inputs (dynamically created)
+      // Use event delegation on the parent container
+      const paramsContainer = document.getElementById('paramsInputs');
+      paramsContainer.addEventListener('input', autoSave);
+    }
+
     // Load saved strategies on page load
     loadSavedStrategies();
+
+    // Set up auto-save listeners
+    setupAutoSave();
   </script>
 {% endblock %}
