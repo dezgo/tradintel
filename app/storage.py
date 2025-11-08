@@ -158,6 +158,19 @@ class Storage:
             )
             self._conn.commit()
 
+        # Migrate to version 5: add days column to saved_backtests and optimization_results
+        if ver < 5:
+            cur.executescript(
+                """
+                BEGIN;
+                ALTER TABLE saved_backtests ADD COLUMN days INTEGER DEFAULT 365;
+                ALTER TABLE optimization_results ADD COLUMN days INTEGER DEFAULT 365;
+                PRAGMA user_version = 5;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
     # ── Trades ────────────────────────────────────────────────────────────────
     def record_trade(
         self, bot_name: str, symbol: str, side: str, qty: float, price: float, ts: Optional[int] = None
@@ -510,7 +523,7 @@ class Storage:
 
     # ── Saved backtests ────────────────────────────────────────────────────────
     def save_backtest(self, *, name: str, strategy: str, symbol: str, timeframe: str,
-                      params: Dict[str, Any], initial_capital: float, min_notional: float) -> int:
+                      params: Dict[str, Any], initial_capital: float, min_notional: float, days: int = 365) -> int:
         """Save a backtest configuration. Returns the saved ID."""
         params_json = json.dumps(params, separators=(",", ":"))
         now = int(time.time())
@@ -518,8 +531,8 @@ class Storage:
         with self._lock:
             cur = self._conn.execute(
                 """
-                INSERT INTO saved_backtests(name, strategy, symbol, timeframe, params_json, initial_capital, min_notional, created_ts)
-                VALUES(?,?,?,?,?,?,?,?)
+                INSERT INTO saved_backtests(name, strategy, symbol, timeframe, params_json, initial_capital, min_notional, days, created_ts)
+                VALUES(?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(name) DO UPDATE SET
                     strategy=excluded.strategy,
                     symbol=excluded.symbol,
@@ -527,9 +540,10 @@ class Storage:
                     params_json=excluded.params_json,
                     initial_capital=excluded.initial_capital,
                     min_notional=excluded.min_notional,
+                    days=excluded.days,
                     created_ts=excluded.created_ts
                 """,
-                (name, strategy, symbol, timeframe, params_json, float(initial_capital), float(min_notional), now)
+                (name, strategy, symbol, timeframe, params_json, float(initial_capital), float(min_notional), int(days), now)
             )
             self._conn.commit()
             return cur.lastrowid
@@ -538,7 +552,7 @@ class Storage:
         """List all saved backtest configurations."""
         with self._lock:
             cur = self._conn.execute(
-                "SELECT id, name, strategy, symbol, timeframe, params_json, initial_capital, min_notional, created_ts FROM saved_backtests ORDER BY created_ts DESC"
+                "SELECT id, name, strategy, symbol, timeframe, params_json, initial_capital, min_notional, days, created_ts FROM saved_backtests ORDER BY created_ts DESC"
             )
             rows = cur.fetchall()
 
@@ -552,7 +566,8 @@ class Storage:
                 "params": json.loads(r[5]),
                 "initial_capital": float(r[6]),
                 "min_notional": float(r[7]),
-                "created_ts": int(r[8]),
+                "days": int(r[8]),
+                "created_ts": int(r[9]),
             }
             for r in rows
         ]
@@ -578,6 +593,7 @@ class Storage:
         max_drawdown: float,
         total_trades: int,
         win_rate: float,
+        days: int,
         tested_ts: int,
     ) -> int:
         """Save an optimization result. Updates if same config exists."""
@@ -588,9 +604,9 @@ class Storage:
                 """
                 INSERT INTO optimization_results(
                     strategy, symbol, timeframe, params_json, score,
-                    total_return, sharpe_ratio, max_drawdown, total_trades, win_rate, tested_ts
+                    total_return, sharpe_ratio, max_drawdown, total_trades, win_rate, days, tested_ts
                 )
-                VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(strategy, symbol, timeframe, params_json) DO UPDATE SET
                     score=excluded.score,
                     total_return=excluded.total_return,
@@ -598,6 +614,7 @@ class Storage:
                     max_drawdown=excluded.max_drawdown,
                     total_trades=excluded.total_trades,
                     win_rate=excluded.win_rate,
+                    days=excluded.days,
                     tested_ts=excluded.tested_ts
                 """,
                 (
@@ -611,6 +628,7 @@ class Storage:
                     float(max_drawdown),
                     int(total_trades),
                     float(win_rate),
+                    int(days),
                     int(tested_ts),
                 ),
             )
@@ -627,7 +645,7 @@ class Storage:
         sql = [
             """
             SELECT id, strategy, symbol, timeframe, params_json, score,
-                   total_return, sharpe_ratio, max_drawdown, total_trades, win_rate, tested_ts
+                   total_return, sharpe_ratio, max_drawdown, total_trades, win_rate, days, tested_ts
             FROM optimization_results
             WHERE 1=1
             """
@@ -662,7 +680,8 @@ class Storage:
                 "max_drawdown": float(r[8]),
                 "total_trades": int(r[9]),
                 "win_rate": float(r[10]),
-                "tested_ts": int(r[11]),
+                "days": int(r[11]),
+                "tested_ts": int(r[12]),
             }
             for r in rows
         ]

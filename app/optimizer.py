@@ -205,6 +205,7 @@ class StrategyOptimizer:
                 max_drawdown=result.metrics.max_drawdown,
                 total_trades=result.metrics.total_trades,
                 win_rate=result.metrics.win_rate,
+                days=self.days,
                 tested_ts=result.tested_ts,
             )
 

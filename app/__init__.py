@@ -242,6 +242,7 @@ def create_app() -> Flask:
                 params=body["params"],
                 initial_capital=body.get("initial_capital", 1000),
                 min_notional=body.get("min_notional", 100),
+                days=body.get("days", 365),
             )
             return jsonify({"id": backtest_id, "name": body["name"]})
         except Exception as e:
@@ -483,7 +484,7 @@ def create_app() -> Flask:
         name = f"{result['strategy']} • {result['symbol'].replace('_USDT', '')} • {result['timeframe']} [Opt {result['score']:.0f}]"
 
         try:
-            # Save as backtest configuration
+            # Save as backtest configuration with the days used in optimization
             backtest_id = store.save_backtest(
                 name=name,
                 strategy=result["strategy"],
@@ -492,6 +493,7 @@ def create_app() -> Flask:
                 params=result["params"],
                 initial_capital=1000.0,
                 min_notional=100.0,
+                days=result["days"],
             )
 
             return jsonify({"id": backtest_id, "name": name})
