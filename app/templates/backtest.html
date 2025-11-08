@@ -156,11 +156,17 @@
                   <option value="4h">4 hours</option>
                   <option value="1d">1 day</option>
                 </select>
+                <div class="form-text text-muted small" id="timeframeHelp">
+                  Available: ~3.5 days of data (1000 bars max)
+                </div>
               </div>
 
               <div class="mb-3">
                 <label for="days" class="form-label">History (days)</label>
-                <input type="number" class="form-control" id="days" value="30" min="1" max="365" required>
+                <input type="number" class="form-control" id="days" value="3" min="1" max="365" required>
+                <div class="form-text text-muted small">
+                  Note: Actual data may be less due to API limits
+                </div>
               </div>
 
               <div id="paramsSection" class="mb-3">
@@ -193,13 +199,13 @@
             <h2 class="h6 section-title mb-2">Quick Presets</h2>
             <div class="d-grid gap-2">
               <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('mr-btc')">
-                <strong>Mean Reversion</strong> • BTC • 5m • 30d
+                <strong>Mean Reversion</strong> • BTC • 5m • 3d
               </button>
               <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('bo-eth')">
-                <strong>Breakout</strong> • ETH • 5m • 30d
+                <strong>Breakout</strong> • ETH • 5m • 3d
               </button>
               <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('tf-sol')">
-                <strong>Trend Follow</strong> • SOL • 5m • 30d
+                <strong>Trend Follow</strong> • SOL • 5m • 3d
               </button>
             </div>
           </div>
@@ -366,6 +372,27 @@
           />
         </div>
       `).join('');
+    });
+
+    // Update timeframe help text and recommended days
+    const timeframeLimits = {
+      '1m': { days: 0.7, label: '~16 hours' },
+      '5m': { days: 3, label: '~3.5 days' },
+      '15m': { days: 10, label: '~10 days' },
+      '30m': { days: 20, label: '~20 days' },
+      '1h': { days: 40, label: '~41 days' },
+      '4h': { days: 160, label: '~160 days' },
+      '1d': { days: 1000, label: '~2.7 years' }
+    };
+
+    document.getElementById('timeframe').addEventListener('change', (e) => {
+      const tf = e.target.value;
+      const limit = timeframeLimits[tf];
+      if (limit) {
+        document.getElementById('timeframeHelp').textContent =
+          `Available: ${limit.label} of data (1000 bars max)`;
+        document.getElementById('days').value = Math.floor(limit.days);
+      }
     });
 
     // Form submission
@@ -564,21 +591,21 @@
           strategy: 'MeanReversion',
           symbol: 'BTC_USDT',
           timeframe: '5m',
-          days: 30,
+          days: 3,
           params: { lookback: 50, band: 2.0, confirm_bars: 2 }
         },
         'bo-eth': {
           strategy: 'Breakout',
           symbol: 'ETH_USDT',
           timeframe: '5m',
-          days: 30,
+          days: 3,
           params: { lookback: 60, confirm_bars: 2 }
         },
         'tf-sol': {
           strategy: 'TrendFollow',
           symbol: 'SOL_USDT',
           timeframe: '5m',
-          days: 30,
+          days: 3,
           params: { fast: 20, slow: 100, confirm_bars: 2 }
         }
       };
