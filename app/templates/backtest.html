@@ -105,6 +105,12 @@
               <input type="number" class="form-control" id="minNotional" value="100" min="10" step="10" required>
             </div>
 
+            <!-- Validation warnings -->
+            <div id="configWarning" class="alert alert-warning p-2 mb-2 small" style="display: none;">
+              <strong>⚠️ Warning:</strong>
+              <div id="configWarningText"></div>
+            </div>
+
             <button type="submit" class="btn btn-primary w-100 mb-2" id="runBtn">
               Run Backtest
             </button>
@@ -302,6 +308,7 @@
 
       if (!strategy || !strategyParams[strategy]) {
         container.innerHTML = '<div class="text-muted small">Select a strategy to see parameters</div>';
+        updateConfigWarnings();
         return;
       }
 
@@ -322,6 +329,9 @@
           />
         </div>
       `).join('');
+
+      // Update warnings after parameters are created
+      updateConfigWarnings();
     });
 
     // Update timeframe help text and recommended days
@@ -345,6 +355,69 @@
       }
     });
 
+    // Validate backtest configuration
+    function validateBacktestConfig(strategy, params, timeframe, days) {
+      const warnings = [];
+
+      // Calculate how many bars we'll actually get
+      const barsPerDay = {
+        '1m': 1440,
+        '5m': 288,
+        '15m': 96,
+        '30m': 48,
+        '1h': 24,
+        '4h': 6,
+        '1d': 1
+      };
+
+      const expectedBars = days * (barsPerDay[timeframe] || 1);
+
+      // Check if lookback period exceeds available data
+      if (params.lookback) {
+        const minDaysNeeded = Math.ceil((params.lookback + 50) / barsPerDay[timeframe]);
+
+        if (params.lookback >= expectedBars * 0.9) {
+          warnings.push(
+            `⚠️ Lookback period (${params.lookback}) is too large for ${days} days of ${timeframe} data.\n` +
+            `This will generate very few or no trades.\n\n` +
+            `Recommended: Use at least ${minDaysNeeded} days of history.`
+          );
+        } else if (params.lookback >= expectedBars * 0.5) {
+          warnings.push(
+            `⚠️ Lookback period (${params.lookback}) uses ${Math.round(params.lookback/expectedBars*100)}% of available data.\n` +
+            `This may generate limited trades.\n\n` +
+            `Recommended: Use at least ${minDaysNeeded} days of history for better results.`
+          );
+        }
+      }
+
+      // Check for slow MA in trend following
+      if (strategy === 'TrendFollow' && params.slow) {
+        const minDaysNeeded = Math.ceil((params.slow + 50) / barsPerDay[timeframe]);
+
+        if (params.slow >= expectedBars * 0.9) {
+          warnings.push(
+            `⚠️ Slow MA period (${params.slow}) is too large for ${days} days of ${timeframe} data.\n\n` +
+            `Recommended: Use at least ${minDaysNeeded} days of history.`
+          );
+        }
+      }
+
+      // Check if we have enough bars for any meaningful backtest
+      if (expectedBars < 100) {
+        warnings.push(
+          `⚠️ Only ${expectedBars} bars available with ${days} days of ${timeframe} data.\n` +
+          `This is very limited for backtesting.\n\n` +
+          `Recommended: Use more days or a longer timeframe.`
+        );
+      }
+
+      return {
+        valid: warnings.length === 0,
+        warning: warnings.join('\n\n')
+      };
+    }
+
     // Form submission
     document.getElementById('backtestForm').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -363,6 +436,13 @@
         const value = input.type === 'number' ? parseFloat(input.value) : input.value;
         params[input.name] = value;
       });
+
+      // Validation: check if configuration makes sense
+      const validation = validateBacktestConfig(strategy, params, timeframe, days);
+      if (!validation.valid) {
+        const proceed = confirm(validation.warning + '\n\nDo you want to proceed anyway?');
+        if (!proceed) return;
+      }
 
       // Show loading state
       document.getElementById('emptyState').style.display = 'none';
@@ -624,6 +704,9 @@
           const input = document.getElementById(`param_${key}`);
           if (input) input.value = value;
         });
+
+        // Update warnings after loading config
+        updateConfigWarnings();
       }, 100);
     }
 
@@ -805,6 +888,35 @@
       }
     }
 
+    // Check and update configuration warnings in real-time
+    function updateConfigWarnings() {
+      const strategy = document.getElementById('strategy').value;
+      const timeframe = document.getElementById('timeframe').value;
+      const days = parseInt(document.getElementById('days').value) || 0;
+
+      if (!strategy) {
+        document.getElementById('configWarning').style.display = 'none';
+        return;
+      }
+
+      // Collect current parameters
+      const params = {};
+      const paramInputs = document.querySelectorAll('#paramsInputs input');
+      paramInputs.forEach(input => {
+        const value = input.type === 'number' ? parseFloat(input.value) : input.value;
+        params[input.name] = value;
+      });
+
+      const validation = validateBacktestConfig(strategy, params, timeframe, days);
+
+      if (!validation.valid) {
+        document.getElementById('configWarningText').innerHTML = validation.warning.replace(/\n/g, '<br>');
+        document.getElementById('configWarning').style.display = 'block';
+      } else {
+        document.getElementById('configWarning').style.display = 'none';
+      }
+    }
+
     // Add auto-save event listeners to all form inputs
     function setupAutoSave() {
       const formInputs = [
@@ -816,6 +928,7 @@
         const element = document.getElementById(id);
         if (element) {
           element.addEventListener('change', autoSave);
+          element.addEventListener('change', updateConfigWarnings);
         }
       });
 
@@ -823,6 +936,7 @@
       // Use event delegation on the parent container
       const paramsContainer = document.getElementById('paramsInputs');
       paramsContainer.addEventListener('input', autoSave);
+      paramsContainer.addEventListener('input', updateConfigWarnings);
     }
 
     // Load saved strategies on page load
