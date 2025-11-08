@@ -118,19 +118,24 @@ class CoinGeckoAdapter(DataProvider):
         """
         Fetch daily OHLCV data from CoinGecko.
 
-        Note: CoinGecko only provides daily data, so timeframe is ignored.
+        Note: CoinGecko free tier OHLC endpoint is limited to ~90 days maximum.
+        Requesting more will still only return ~90 days.
         """
         # Map symbol to CoinGecko ID
         coin_id = self.SYMBOL_MAP.get(symbol)
         if not coin_id:
             raise ValueError(f"Unsupported symbol '{symbol}' for CoinGecko. Supported: {', '.join(self.SYMBOL_MAP.keys())}")
 
+        # CoinGecko free tier OHLC limit: ~90 days
+        # Requesting more doesn't give you more data, just wastes the request
+        actual_limit = min(limit, 90)
+
         # CoinGecko /coins/{id}/ohlc endpoint
         # vs_currency=usd, days=max (or specific number)
         url = f"{self.BASE_URL}/coins/{coin_id}/ohlc"
         params = {
             "vs_currency": "usd",
-            "days": str(limit),  # Days of history
+            "days": str(actual_limit),  # Days of history (max 90 on free tier)
         }
 
         try:
@@ -169,16 +174,20 @@ class CoinGeckoAdapter(DataProvider):
         return out
 
 
-def backfill_daily_data(symbols: list[str], days: int = 365) -> dict[str, str]:
+def backfill_daily_data(symbols: list[str], days: int = 90) -> dict[str, str]:
     """
     Backfill daily data for multiple symbols from CoinGecko.
 
+    - CoinGecko free tier limit: ~90 days of OHLC data maximum
     - Checks existing cache first and skips if we already have enough data
-    - Uses 4-6 second delays to respect CoinGecko rate limits (10 calls/min free tier)
+    - Uses 5 second delays to respect rate limits (10-30 calls/min free tier)
     - Returns dict mapping symbol -> status message
     """
     gecko = CoinGeckoAdapter()
     results = {}
+
+    # Cap at 90 days (CoinGecko free tier OHLC limit)
+    days = min(days, 90)
 
     for idx, symbol in enumerate(symbols):
         try:

@@ -120,15 +120,17 @@ Response:
 ### CoinGecko (Free Tier)
 - **Timeframes**: 1d only (daily OHLCV)
 - **Symbols**: BTC, ETH, SOL, BNB, XRP, ADA, AVAX, DOGE, DOT, MATIC
-- **Limit**: Up to 10 years of daily data
-- **Rate Limit**: 10-30 calls/minute
+- **Limit**: **~90 days maximum** (OHLC endpoint limitation)
+- **Rate Limit**: 10-30 calls/minute (5 second delays recommended)
 - **Pros**:
   - No API key required
   - Reliable historical data
-  - Long history available
+  - Good for 3-month backtests
 - **Cons**:
+  - **90 day limit** on free tier OHLC endpoint
   - Daily data only (no intraday)
   - Volume data not included in OHLC endpoint
+  - Longer history requires paid API or different endpoint
 
 ## Architecture
 
