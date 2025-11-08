@@ -117,4 +117,125 @@ def create_app() -> Flask:
     def ui():
         return render_template("portfolio.html")
 
+    @app.get("/backtest/strategies")
+    def backtest_strategies():
+        """List available strategies and their parameter grids."""
+        from app.strategies import MR_GRID, BO_GRID, TF_GRID
+        return jsonify({
+            "strategies": [
+                {
+                    "name": "MeanReversion",
+                    "params": MR_GRID,
+                    "description": "Mean reversion strategy using moving average bands"
+                },
+                {
+                    "name": "Breakout",
+                    "params": BO_GRID,
+                    "description": "Breakout strategy based on new highs/lows"
+                },
+                {
+                    "name": "TrendFollow",
+                    "params": TF_GRID,
+                    "description": "Trend following strategy using dual moving averages"
+                }
+            ],
+            "symbols": ["BTC_USDT", "ETH_USDT", "SOL_USDT"],
+            "timeframes": ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
+        })
+
+    @app.post("/backtest")
+    def run_backtest():
+        """
+        Run a backtest on historical data.
+
+        Request body:
+        {
+            "strategy": "MeanReversion" | "Breakout" | "TrendFollow",
+            "params": {"lookback": 20, "band": 2.0, ...},
+            "symbol": "BTC_USDT",
+            "timeframe": "1m",
+            "days": 30,  // optional, defaults to 30
+            "initial_capital": 1000,  // optional
+            "min_notional": 100  // optional
+        }
+
+        Returns:
+        {
+            "metrics": {...},
+            "equity_curve": [...],
+            "trades": [...]
+        }
+        """
+        from app.backtest import Backtester
+        from app.strategies import MeanReversion, Breakout, TrendFollow
+        from app.data import GateAdapter
+        import time
+
+        body = request.get_json()
+        if not body:
+            return jsonify({"error": "Request body required"}), 400
+
+        # Parse request
+        strategy_name = body.get("strategy")
+        params = body.get("params", {})
+        symbol = body.get("symbol", "BTC_USDT")
+        timeframe = body.get("timeframe", "1m")
+        days = body.get("days", 30)
+        initial_capital = body.get("initial_capital", 1000.0)
+        min_notional = body.get("min_notional", 100.0)
+
+        # Validate strategy
+        strategy_map = {
+            "MeanReversion": MeanReversion,
+            "Breakout": Breakout,
+            "TrendFollow": TrendFollow,
+        }
+
+        if strategy_name not in strategy_map:
+            return jsonify({"error": f"Unknown strategy: {strategy_name}"}), 400
+
+        # Create strategy instance
+        try:
+            strategy = strategy_map[strategy_name](**params)
+        except Exception as e:
+            return jsonify({"error": f"Invalid parameters: {str(e)}"}), 400
+
+        # Calculate start timestamp
+        end_ts = int(time.time())
+        start_ts = end_ts - (days * 86400)
+
+        # Run backtest
+        try:
+            data_provider = GateAdapter()
+            backtester = Backtester(
+                initial_capital=initial_capital,
+                min_notional=min_notional,
+            )
+
+            metrics = backtester.run(
+                strategy=strategy,
+                data_provider=data_provider,
+                symbol=symbol,
+                timeframe=timeframe,
+                start_ts=start_ts,
+                end_ts=end_ts,
+            )
+
+            return jsonify({
+                "metrics": metrics.to_dict(),
+                "equity_curve": backtester.get_equity_curve(),
+                "trades": backtester.get_trades(),
+                "config": {
+                    "strategy": strategy_name,
+                    "params": params,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "days": days,
+                    "initial_capital": initial_capital,
+                }
+            })
+
+        except Exception as e:
+            return jsonify({"error": f"Backtest failed: {str(e)}"}), 500
+
     return app
