@@ -1,70 +1,11 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>TradingBot — Backtest</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Bootstrap (CDN) -->
-  <link
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-    rel="stylesheet"
-    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
-    crossorigin="anonymous"
-  />
-  <!-- Chart.js for equity curve -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<style>
-  :root {
-    --bg: #0c1118;          /* page */
-    --panel: #111826;       /* cards */
-    --panel-border: #243041;/* borders */
-    --text: #e8edf3;        /* primary text */
-    --text-muted: #b7c2cf;  /* secondary text */
-    --table-head: #1a2332;
-    --table-row: #121a28;
-    --table-row-alt: #152032;
-    --green: #17b26a;
-    --green-ink: #062a1a;
-    --red: #f04438;
-    --red-ink: #2c0b0b;
-    --blue: #3b82f6;
-  }
+{% extends "base.html" %}
 
-  body { background: var(--bg); color: var(--text); }
-  .muted { color: var(--text-muted); }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+{% block title %}TradingBot — Backtest{% endblock %}
+{% block page_title %}TradingBot — Backtest{% endblock %}
 
-  .card { background: var(--panel); border: 1px solid var(--panel-border); }
-  .card .card-body { color: var(--text); }
+{% set active_page = 'backtest' %}
 
-  /* Table */
-  .table-dark { --bs-table-color: var(--text); --bs-table-bg: transparent; }
-  .table-dark thead th { background: var(--table-head); color: var(--text); border-color: var(--panel-border); }
-  .table-dark tbody tr { background: var(--table-row); }
-  .table-dark tbody tr:nth-child(odd) { background: var(--table-row-alt); }
-  .table-dark td, .table-dark th { border-color: var(--panel-border); }
-  .table-dark td.text-muted { color: var(--text-muted) !important; }
-
-  /* Badges */
-  .badge-up   { background: var(--green-ink); color: var(--text); border: 1px solid var(--green); }
-  .badge-down { background: var(--red-ink);   color: var(--text); border: 1px solid var(--red); }
-
-  /* Forms */
-  .form-label { color: var(--text-muted); font-size: 0.875rem; }
-  .form-control, .form-select {
-    background: var(--panel);
-    border: 1px solid var(--panel-border);
-    color: var(--text);
-  }
-  .form-control:focus, .form-select:focus {
-    background: var(--panel);
-    border-color: var(--blue);
-    color: var(--text);
-  }
-
-  /* Section headers */
-  .section-title { color: var(--text); opacity: 0.95; }
-
+{% block extra_styles %}
   /* Metric cards */
   .metric-card {
     background: var(--table-row);
@@ -82,250 +23,215 @@
     font-size: 1.5rem;
     font-weight: 600;
     margin-top: 0.25rem;
+    color: var(--text);
   }
 
   /* Loading spinner */
   .spinner-border { border-color: var(--blue); border-right-color: transparent; }
 
-  /* Nav tabs */
-  .nav-tabs {
-    border-bottom: 1px solid var(--panel-border);
-  }
-  .nav-tabs .nav-link {
-    color: var(--text-muted);
-    border: none;
-    border-bottom: 2px solid transparent;
-  }
-  .nav-tabs .nav-link:hover {
-    color: var(--text);
-    border-bottom-color: var(--panel-border);
-  }
-  .nav-tabs .nav-link.active {
-    color: var(--text);
-    background: transparent;
-    border-bottom-color: var(--blue);
-  }
+  /* Badges */
+  .badge-up   { background: #062a1a; color: var(--text); border: 1px solid var(--green); }
+  .badge-down { background: #2c0b0b; color: var(--text); border: 1px solid var(--red); }
+{% endblock %}
 
-  /* Tab content */
-  .tab-content {
-    background: transparent;
-    color: var(--text);
-  }
-  .tab-pane {
-    background: transparent;
-    color: var(--text);
-  }
-</style>
+{% block content %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
-</head>
-<body class="p-3">
-  <div class="container-fluid">
-    <!-- Header with nav -->
-    <div class="d-flex align-items-center justify-content-between mb-3">
-      <h1 class="h3 mb-0">TradingBot — Backtest</h1>
-      <div class="d-flex gap-2">
-        <a href="/ui" class="btn btn-sm btn-outline-light">Portfolio</a>
-        <a href="/backtest-ui" class="btn btn-sm btn-primary">Backtest</a>
-        <a href="/data-ui" class="btn btn-sm btn-outline-light">Data</a>
+  <div class="row">
+    <!-- Left: Configuration -->
+    <div class="col-lg-4">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h2 class="h5 section-title mb-3">Configuration</h2>
+
+          <form id="backtestForm">
+            <div class="mb-3">
+              <label for="strategy" class="form-label">Strategy</label>
+              <select class="form-select" id="strategy" required>
+                <option value="">Select strategy...</option>
+                <option value="MeanReversion">Mean Reversion</option>
+                <option value="Breakout">Breakout</option>
+                <option value="TrendFollow">Trend Following</option>
+              </select>
+            </div>
+
+            <div class="mb-3">
+              <label for="symbol" class="form-label">Symbol</label>
+              <select class="form-select" id="symbol" required>
+                <option value="BTC_USDT">BTC_USDT</option>
+                <option value="ETH_USDT">ETH_USDT</option>
+                <option value="SOL_USDT">SOL_USDT</option>
+              </select>
+            </div>
+
+            <div class="mb-3">
+              <label for="timeframe" class="form-label">Timeframe</label>
+              <select class="form-select" id="timeframe" required>
+                <option value="1m">1 minute</option>
+                <option value="5m" selected>5 minutes</option>
+                <option value="15m">15 minutes</option>
+                <option value="30m">30 minutes</option>
+                <option value="1h">1 hour</option>
+                <option value="4h">4 hours</option>
+                <option value="1d">1 day</option>
+              </select>
+              <div class="form-text small" id="timeframeHelp">
+                Available: ~3.5 days of data (1000 bars max)
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label for="days" class="form-label">History (days)</label>
+              <input type="number" class="form-control" id="days" value="3" min="1" max="365" required>
+              <div class="form-text small">
+                Note: Actual data may be less due to API limits
+              </div>
+            </div>
+
+            <div id="paramsSection" class="mb-3">
+              <label class="form-label">Strategy Parameters</label>
+              <div id="paramsInputs" class="text-muted small">
+                Select a strategy to see parameters
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label for="initialCapital" class="form-label">Initial Capital ($)</label>
+              <input type="number" class="form-control" id="initialCapital" value="1000" min="100" step="100" required>
+            </div>
+
+            <div class="mb-3">
+              <label for="minNotional" class="form-label">Min Trade Size ($)</label>
+              <input type="number" class="form-control" id="minNotional" value="100" min="10" step="10" required>
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100" id="runBtn">
+              Run Backtest
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Quick presets -->
+      <div class="card">
+        <div class="card-body">
+          <h2 class="h6 section-title mb-2">Quick Presets</h2>
+          <div class="d-grid gap-2">
+            <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('mr-btc')">
+              <strong>Mean Reversion</strong> • BTC • 5m • 3d
+            </button>
+            <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('bo-eth')">
+              <strong>Breakout</strong> • ETH • 5m • 3d
+            </button>
+            <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('tf-sol')">
+              <strong>Trend Follow</strong> • SOL • 5m • 3d
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="row">
-      <!-- Left: Configuration -->
-      <div class="col-lg-4">
-        <div class="card mb-3">
-          <div class="card-body">
-            <h2 class="h5 section-title mb-3">Configuration</h2>
-
-            <form id="backtestForm">
-              <div class="mb-3">
-                <label for="strategy" class="form-label">Strategy</label>
-                <select class="form-select" id="strategy" required>
-                  <option value="">Select strategy...</option>
-                  <option value="MeanReversion">Mean Reversion</option>
-                  <option value="Breakout">Breakout</option>
-                  <option value="TrendFollow">Trend Following</option>
-                </select>
-              </div>
-
-              <div class="mb-3">
-                <label for="symbol" class="form-label">Symbol</label>
-                <select class="form-select" id="symbol" required>
-                  <option value="BTC_USDT">BTC_USDT</option>
-                  <option value="ETH_USDT">ETH_USDT</option>
-                  <option value="SOL_USDT">SOL_USDT</option>
-                </select>
-              </div>
-
-              <div class="mb-3">
-                <label for="timeframe" class="form-label">Timeframe</label>
-                <select class="form-select" id="timeframe" required>
-                  <option value="1m">1 minute</option>
-                  <option value="5m" selected>5 minutes</option>
-                  <option value="15m">15 minutes</option>
-                  <option value="30m">30 minutes</option>
-                  <option value="1h">1 hour</option>
-                  <option value="4h">4 hours</option>
-                  <option value="1d">1 day</option>
-                </select>
-                <div class="form-text text-muted small" id="timeframeHelp">
-                  Available: ~3.5 days of data (1000 bars max)
-                </div>
-              </div>
-
-              <div class="mb-3">
-                <label for="days" class="form-label">History (days)</label>
-                <input type="number" class="form-control" id="days" value="3" min="1" max="365" required>
-                <div class="form-text text-muted small">
-                  Note: Actual data may be less due to API limits
-                </div>
-              </div>
-
-              <div id="paramsSection" class="mb-3">
-                <label class="form-label">Strategy Parameters</label>
-                <div id="paramsInputs" class="text-muted small">
-                  Select a strategy to see parameters
-                </div>
-              </div>
-
-              <div class="mb-3">
-                <label for="initialCapital" class="form-label">Initial Capital ($)</label>
-                <input type="number" class="form-control" id="initialCapital" value="1000" min="100" step="100" required>
-              </div>
-
-              <div class="mb-3">
-                <label for="minNotional" class="form-label">Min Trade Size ($)</label>
-                <input type="number" class="form-control" id="minNotional" value="100" min="10" step="10" required>
-              </div>
-
-              <button type="submit" class="btn btn-primary w-100" id="runBtn">
-                Run Backtest
-              </button>
-            </form>
+    <!-- Right: Results -->
+    <div class="col-lg-8">
+      <!-- Loading state -->
+      <div id="loadingState" class="card text-center py-5" style="display: none;">
+        <div class="card-body">
+          <div class="spinner-border mb-3" role="status">
+            <span class="visually-hidden">Loading...</span>
           </div>
-        </div>
-
-        <!-- Quick presets -->
-        <div class="card">
-          <div class="card-body">
-            <h2 class="h6 section-title mb-2">Quick Presets</h2>
-            <div class="d-grid gap-2">
-              <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('mr-btc')">
-                <strong>Mean Reversion</strong> • BTC • 5m • 3d
-              </button>
-              <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('bo-eth')">
-                <strong>Breakout</strong> • ETH • 5m • 3d
-              </button>
-              <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('tf-sol')">
-                <strong>Trend Follow</strong> • SOL • 5m • 3d
-              </button>
-            </div>
-          </div>
+          <p class="text-muted">Running backtest...</p>
         </div>
       </div>
 
-      <!-- Right: Results -->
-      <div class="col-lg-8">
-        <!-- Loading state -->
-        <div id="loadingState" class="card text-center py-5" style="display: none;">
-          <div class="card-body">
-            <div class="spinner-border mb-3" role="status">
-              <span class="visually-hidden">Loading...</span>
+      <!-- Empty state -->
+      <div id="emptyState" class="card text-center py-5">
+        <div class="card-body">
+          <p class="text-muted mb-0">Configure and run a backtest to see results</p>
+        </div>
+      </div>
+
+      <!-- Results -->
+      <div id="resultsContainer" style="display: none;">
+        <!-- Metrics Grid -->
+        <div class="row g-3 mb-3">
+          <div class="col-md-3">
+            <div class="metric-card">
+              <div class="metric-label">Total Return</div>
+              <div class="metric-value mono" id="metricReturn">-</div>
             </div>
-            <p class="text-muted">Running backtest...</p>
+          </div>
+          <div class="col-md-3">
+            <div class="metric-card">
+              <div class="metric-label">Sharpe Ratio</div>
+              <div class="metric-value mono" id="metricSharpe">-</div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="metric-card">
+              <div class="metric-label">Max Drawdown</div>
+              <div class="metric-value mono" id="metricDrawdown">-</div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="metric-card">
+              <div class="metric-label">Win Rate</div>
+              <div class="metric-value mono" id="metricWinRate">-</div>
+            </div>
           </div>
         </div>
 
-        <!-- Empty state -->
-        <div id="emptyState" class="card text-center py-5">
+        <!-- Tabs -->
+        <div class="card">
           <div class="card-body">
-            <p class="text-muted mb-0">Configure and run a backtest to see results</p>
-          </div>
-        </div>
+            <ul class="nav nav-tabs mb-3" role="tablist">
+              <li class="nav-item">
+                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#equityTab">Equity Curve</button>
+              </li>
+              <li class="nav-item">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#metricsTab">All Metrics</button>
+              </li>
+              <li class="nav-item">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tradesTab">Trades</button>
+              </li>
+            </ul>
 
-        <!-- Results -->
-        <div id="resultsContainer" style="display: none;">
-          <!-- Metrics Grid -->
-          <div class="row g-3 mb-3">
-            <div class="col-md-3">
-              <div class="metric-card">
-                <div class="metric-label">Total Return</div>
-                <div class="metric-value mono" id="metricReturn">-</div>
+            <div class="tab-content">
+              <!-- Equity Curve -->
+              <div class="tab-pane fade show active" id="equityTab">
+                <canvas id="equityChart" style="height: 500px;"></canvas>
               </div>
-            </div>
-            <div class="col-md-3">
-              <div class="metric-card">
-                <div class="metric-label">Sharpe Ratio</div>
-                <div class="metric-value mono" id="metricSharpe">-</div>
-              </div>
-            </div>
-            <div class="col-md-3">
-              <div class="metric-card">
-                <div class="metric-label">Max Drawdown</div>
-                <div class="metric-value mono" id="metricDrawdown">-</div>
-              </div>
-            </div>
-            <div class="col-md-3">
-              <div class="metric-card">
-                <div class="metric-label">Win Rate</div>
-                <div class="metric-value mono" id="metricWinRate">-</div>
-              </div>
-            </div>
-          </div>
 
-          <!-- Tabs -->
-          <div class="card">
-            <div class="card-body">
-              <ul class="nav nav-tabs mb-3" role="tablist">
-                <li class="nav-item">
-                  <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#equityTab">Equity Curve</button>
-                </li>
-                <li class="nav-item">
-                  <button class="nav-link" data-bs-toggle="tab" data-bs-target="#metricsTab">All Metrics</button>
-                </li>
-                <li class="nav-item">
-                  <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tradesTab">Trades</button>
-                </li>
-              </ul>
-
-              <div class="tab-content">
-                <!-- Equity Curve -->
-                <div class="tab-pane fade show active" id="equityTab">
-                  <canvas id="equityChart" style="height: 500px;"></canvas>
-                </div>
-
-                <!-- All Metrics -->
-                <div class="tab-pane fade" id="metricsTab">
-                  <div class="row g-3">
-                    <div class="col-md-6">
-                      <table class="table table-sm table-dark">
-                        <tbody id="metricsTable1"></tbody>
-                      </table>
-                    </div>
-                    <div class="col-md-6">
-                      <table class="table table-sm table-dark">
-                        <tbody id="metricsTable2"></tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Trades -->
-                <div class="tab-pane fade" id="tradesTab">
-                  <div class="table-responsive">
-                    <table class="table table-sm table-dark table-striped">
-                      <thead>
-                        <tr>
-                          <th>Time</th>
-                          <th>Side</th>
-                          <th>Qty</th>
-                          <th>Price</th>
-                          <th>Notional</th>
-                        </tr>
-                      </thead>
-                      <tbody id="tradesTable"></tbody>
+              <!-- All Metrics -->
+              <div class="tab-pane fade" id="metricsTab">
+                <div class="row g-3">
+                  <div class="col-md-6">
+                    <table class="table table-sm table-dark">
+                      <tbody id="metricsTable1"></tbody>
                     </table>
                   </div>
+                  <div class="col-md-6">
+                    <table class="table table-sm table-dark">
+                      <tbody id="metricsTable2"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Trades -->
+              <div class="tab-pane fade" id="tradesTab">
+                <div class="table-responsive">
+                  <table class="table table-sm table-dark table-striped">
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Side</th>
+                        <th>Qty</th>
+                        <th>Price</th>
+                        <th>Notional</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tradesTable"></tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -334,7 +240,9 @@
       </div>
     </div>
   </div>
+{% endblock %}
 
+{% block scripts %}
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     let equityChart = null;
@@ -711,5 +619,4 @@
       }, 100);
     }
   </script>
-</body>
-</html>
+{% endblock %}
