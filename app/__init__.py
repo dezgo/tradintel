@@ -117,6 +117,10 @@ def create_app() -> Flask:
     def ui():
         return render_template("portfolio.html")
 
+    @app.get("/backtest-ui")
+    def backtest_ui():
+        return render_template("backtest.html")
+
     @app.get("/backtest/strategies")
     def backtest_strategies():
         """List available strategies and their parameter grids."""
