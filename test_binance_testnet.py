@@ -55,21 +55,23 @@ def test_connection():
         print(f"✓ BTC/USDT Price: ${ticker['last']:,.2f}")
     except Exception as e:
         print(f"❌ Failed to fetch market data: {e}")
-        print("\nTrying alternative method...")
+        print("\nTrying direct API call...")
         try:
-            # Use direct API call
-            response = client.exchange.public_get_ticker_price({'symbol': 'BTCUSDT'})
+            # Use direct API call - publicGetTickerPrice maps to /api/v3/ticker/price
+            response = client.exchange.publicGetTickerPrice({'symbol': 'BTCUSDT'})
             price = float(response['price'])
             print(f"✓ BTC/USDT Price: ${price:,.2f}")
         except Exception as e2:
-            print(f"❌ Alternative method also failed: {e2}")
+            print(f"❌ Direct API call also failed: {e2}")
+            import traceback
+            traceback.print_exc()
             return False
 
     # Test account access using direct API endpoint
     try:
         print("\n→ Testing account access...")
         # This uses the /api/v3/account endpoint which is available on testnet
-        response = client.exchange.private_get_account()
+        response = client.exchange.privateGetAccount()
         balances = response.get('balances', [])
 
         print("✓ Successfully authenticated with Binance testnet!")
