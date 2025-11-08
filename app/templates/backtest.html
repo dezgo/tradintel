@@ -371,19 +371,23 @@
       document.getElementById('runBtn').disabled = true;
       document.getElementById('runBtn').innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Running...';
 
+      // Debug: log what we're sending
+      const payload = {
+        strategy,
+        params,
+        symbol,
+        timeframe,
+        days,
+        initial_capital: initialCapital,
+        min_notional: minNotional
+      };
+      console.log('Backtest request:', payload);
+
       try {
         const response = await fetch('/backtest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            strategy,
-            params,
-            symbol,
-            timeframe,
-            days,
-            initial_capital: initialCapital,
-            min_notional: minNotional
-          })
+          body: JSON.stringify(payload)
         });
 
         const data = await response.json();
