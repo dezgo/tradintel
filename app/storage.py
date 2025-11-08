@@ -171,6 +171,35 @@ class Storage:
             )
             self._conn.commit()
 
+        # Migrate to version 6: add evolved_strategies table for genetic algorithm results
+        if ver < 6:
+            cur.executescript(
+                """
+                BEGIN;
+                CREATE TABLE IF NOT EXISTS evolved_strategies (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    genome_json TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    score REAL NOT NULL,
+                    total_return REAL NOT NULL,
+                    sharpe_ratio REAL NOT NULL,
+                    max_drawdown REAL NOT NULL,
+                    total_trades INTEGER NOT NULL,
+                    win_rate REAL NOT NULL,
+                    generation INTEGER NOT NULL,
+                    days INTEGER NOT NULL,
+                    tested_ts INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_evolved_score ON evolved_strategies(score DESC);
+                CREATE INDEX IF NOT EXISTS idx_evolved_generation ON evolved_strategies(generation DESC);
+                CREATE INDEX IF NOT EXISTS idx_evolved_symbol ON evolved_strategies(symbol, timeframe);
+                PRAGMA user_version = 6;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
     # ── Trades ────────────────────────────────────────────────────────────────
     def record_trade(
         self, bot_name: str, symbol: str, side: str, qty: float, price: float, ts: Optional[int] = None
@@ -685,6 +714,140 @@ class Storage:
             }
             for r in rows
         ]
+
+    # ── Evolved strategies (genetic algorithm) ─────────────────────────────────
+    def save_evolved_strategy(
+        self,
+        *,
+        genome: Dict[str, Any],
+        symbol: str,
+        timeframe: str,
+        score: float,
+        total_return: float,
+        sharpe_ratio: float,
+        max_drawdown: float,
+        total_trades: int,
+        win_rate: float,
+        generation: int,
+        days: int,
+        tested_ts: int,
+    ) -> int:
+        """Save an evolved strategy from genetic algorithm."""
+        genome_json = json.dumps(genome, separators=(",", ":"))
+
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                INSERT INTO evolved_strategies(
+                    genome_json, symbol, timeframe, score,
+                    total_return, sharpe_ratio, max_drawdown, total_trades, win_rate,
+                    generation, days, tested_ts
+                )
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    genome_json,
+                    symbol,
+                    timeframe,
+                    float(score),
+                    float(total_return),
+                    float(sharpe_ratio),
+                    float(max_drawdown),
+                    int(total_trades),
+                    float(win_rate),
+                    int(generation),
+                    int(days),
+                    int(tested_ts),
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def list_evolved_strategies(
+        self, symbol: str = None, min_score: float = None, limit: int = 100
+    ) -> list[dict]:
+        """
+        List evolved strategies, optionally filtered by symbol and minimum score.
+        Returns top results sorted by score (best first).
+        """
+        sql = [
+            """
+            SELECT id, genome_json, symbol, timeframe, score,
+                   total_return, sharpe_ratio, max_drawdown, total_trades, win_rate,
+                   generation, days, tested_ts
+            FROM evolved_strategies
+            WHERE 1=1
+            """
+        ]
+        args = []
+
+        if symbol:
+            sql.append("AND symbol = ?")
+            args.append(symbol)
+
+        if min_score is not None:
+            sql.append("AND score >= ?")
+            args.append(float(min_score))
+
+        sql.append("ORDER BY score DESC LIMIT ?")
+        args.append(int(limit))
+
+        with self._lock:
+            cur = self._conn.execute(" ".join(sql), args)
+            rows = cur.fetchall()
+
+        return [
+            {
+                "id": int(r[0]),
+                "genome": json.loads(r[1]),
+                "symbol": r[2],
+                "timeframe": r[3],
+                "score": float(r[4]),
+                "total_return": float(r[5]),
+                "sharpe_ratio": float(r[6]),
+                "max_drawdown": float(r[7]),
+                "total_trades": int(r[8]),
+                "win_rate": float(r[9]),
+                "generation": int(r[10]),
+                "days": int(r[11]),
+                "tested_ts": int(r[12]),
+            }
+            for r in rows
+        ]
+
+    def get_evolved_strategy(self, strategy_id: int) -> dict | None:
+        """Get a specific evolved strategy by ID."""
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT id, genome_json, symbol, timeframe, score,
+                       total_return, sharpe_ratio, max_drawdown, total_trades, win_rate,
+                       generation, days, tested_ts
+                FROM evolved_strategies
+                WHERE id = ?
+                """,
+                (int(strategy_id),)
+            )
+            row = cur.fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "id": int(row[0]),
+            "genome": json.loads(row[1]),
+            "symbol": row[2],
+            "timeframe": row[3],
+            "score": float(row[4]),
+            "total_return": float(row[5]),
+            "sharpe_ratio": float(row[6]),
+            "max_drawdown": float(row[7]),
+            "total_trades": int(row[8]),
+            "win_rate": float(row[9]),
+            "generation": int(row[10]),
+            "days": int(row[11]),
+            "tested_ts": int(row[12]),
+        }
 
     # ── Historical bars cache ──────────────────────────────────────────────────
     def store_bars(self, symbol: str, timeframe: str, bars: list[tuple[int, float, float, float, float, float]], source: str = "gate") -> None:

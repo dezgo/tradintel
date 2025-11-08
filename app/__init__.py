@@ -13,6 +13,7 @@ from flask import request
 _pm = None
 _runner_thread: threading.Thread | None = None
 _optimizer_thread: threading.Thread | None = None
+_evolver_thread: threading.Thread | None = None
 _selector = AutoParamSelector()  # default: refresh every 30m
 
 
@@ -66,7 +67,7 @@ def _initialize_presets():
 def create_app() -> Flask:
     app = Flask(__name__)
 
-    global _pm, _runner_thread, _optimizer_thread
+    global _pm, _runner_thread, _optimizer_thread, _evolver_thread
     _pm = build_portfolio()
 
     # Initialize quick presets as saved strategies
@@ -82,6 +83,22 @@ def create_app() -> Flask:
         _optimizer_thread = threading.Thread(target=_optimize_loop, daemon=True)
         _optimizer_thread.start()
         print("[App] Strategy optimizer started in background (24h cycle)")
+
+    # Start genetic evolution in background
+    if not os.getenv("APP_DISABLE_EVOLUTION"):
+        def _evolution_loop():
+            from app.genetic_evolution import GeneticEvolver
+            evolver = GeneticEvolver(
+                population_size=20,
+                survivors=5,
+                mutation_rate=0.7,
+                crossover_rate=0.3
+            )
+            evolver.run_continuous(interval_hours=24)
+
+        _evolver_thread = threading.Thread(target=_evolution_loop, daemon=True)
+        _evolver_thread.start()
+        print("[App] Genetic evolution started in background (24h cycle)")
 
     if not os.getenv("APP_DISABLE_LOOP"):
         def _loop():
@@ -191,6 +208,10 @@ def create_app() -> Flask:
     def optimizer_ui():
         return render_template("optimizer.html")
 
+    @app.get("/evolution-ui")
+    def evolution_ui():
+        return render_template("evolution.html")
+
     @app.get("/backtest/strategies")
     def backtest_strategies():
         """List available strategies and their parameter grids."""
@@ -284,6 +305,7 @@ def create_app() -> Flask:
         """
         from app.backtest import Backtester
         from app.strategies import MeanReversion, Breakout, TrendFollow
+        from app.strategy_genome import StrategyGenome, GenomeStrategy
         from app.data import GateAdapter
         import time
 
@@ -300,19 +322,27 @@ def create_app() -> Flask:
         initial_capital = body.get("initial_capital", 1000.0)
         min_notional = body.get("min_notional", 100.0)
 
-        # Validate strategy
-        strategy_map = {
-            "MeanReversion": MeanReversion,
-            "Breakout": Breakout,
-            "TrendFollow": TrendFollow,
-        }
-
-        if strategy_name not in strategy_map:
-            return jsonify({"error": f"Unknown strategy: {strategy_name}"}), 400
-
         # Create strategy instance
         try:
-            strategy = strategy_map[strategy_name](**params)
+            if strategy_name == "GenomeStrategy":
+                # Special handling for evolved strategies
+                if "genome" not in params:
+                    return jsonify({"error": "GenomeStrategy requires genome in params"}), 400
+
+                genome = StrategyGenome.from_dict(params["genome"])
+                strategy = GenomeStrategy(genome)
+            else:
+                # Validate standard strategy
+                strategy_map = {
+                    "MeanReversion": MeanReversion,
+                    "Breakout": Breakout,
+                    "TrendFollow": TrendFollow,
+                }
+
+                if strategy_name not in strategy_map:
+                    return jsonify({"error": f"Unknown strategy: {strategy_name}"}), 400
+
+                strategy = strategy_map[strategy_name](**params)
         except Exception as e:
             return jsonify({"error": f"Invalid parameters: {str(e)}"}), 400
 
@@ -491,6 +521,54 @@ def create_app() -> Flask:
                 symbol=result["symbol"],
                 timeframe=result["timeframe"],
                 params=result["params"],
+                initial_capital=1000.0,
+                min_notional=100.0,
+                days=result["days"],
+            )
+
+            return jsonify({"id": backtest_id, "name": name})
+
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.get("/evolution/results")
+    def list_evolution_results():
+        """List evolved strategies, optionally filtered by symbol and minimum score."""
+        from app.storage import store
+
+        symbol = request.args.get("symbol")
+        min_score = request.args.get("min_score", type=float)
+        limit = int(request.args.get("limit", 100))
+
+        results = store.list_evolved_strategies(symbol=symbol, min_score=min_score, limit=limit)
+        return jsonify({"results": results})
+
+    @app.post("/evolution/promote/<int:strategy_id>")
+    def promote_evolved_strategy(strategy_id: int):
+        """
+        Promote an evolved strategy to a saved backtest configuration.
+        The genome will be stored as parameters so it can be used for backtesting.
+        """
+        from app.storage import store
+
+        # Get the evolved strategy
+        result = store.get_evolved_strategy(strategy_id)
+
+        if not result:
+            return jsonify({"error": "Evolved strategy not found"}), 404
+
+        # Generate name from result
+        name = f"Evolved Gen{result['generation']} • {result['symbol'].replace('_USDT', '')} • {result['timeframe']} [Score {result['score']:.0f}]"
+
+        try:
+            # Save as backtest configuration
+            # Store the genome as params - it will be interpreted by GenomeStrategy
+            backtest_id = store.save_backtest(
+                name=name,
+                strategy="GenomeStrategy",  # Special strategy type for evolved genomes
+                symbol=result["symbol"],
+                timeframe=result["timeframe"],
+                params={"genome": result["genome"]},  # Store genome as params
                 initial_capital=1000.0,
                 min_notional=100.0,
                 days=result["days"],
