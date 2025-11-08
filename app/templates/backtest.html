@@ -105,27 +105,48 @@
               <input type="number" class="form-control" id="minNotional" value="100" min="10" step="10" required>
             </div>
 
-            <button type="submit" class="btn btn-primary w-100" id="runBtn">
+            <button type="submit" class="btn btn-primary w-100 mb-2" id="runBtn">
               Run Backtest
+            </button>
+            <button type="button" class="btn btn-outline-primary w-100" id="saveBtn" onclick="saveCurrentConfig()">
+              Save Configuration
             </button>
           </form>
         </div>
       </div>
 
-      <!-- Quick presets -->
+      <!-- Saved & Quick Strategies -->
       <div class="card">
         <div class="card-body">
-          <h2 class="h6 section-title mb-2">Quick Presets</h2>
-          <div class="d-grid gap-2">
-            <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('mr-btc')">
-              <strong>Mean Reversion</strong> • BTC • 5m • 3d
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h2 class="h6 section-title mb-0">Strategies</h2>
+            <button class="btn btn-sm btn-outline-light" onclick="loadSavedStrategies()">
+              <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/>
+                <path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z"/>
+              </svg>
             </button>
-            <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('bo-eth')">
-              <strong>Breakout</strong> • ETH • 5m • 3d
-            </button>
-            <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('tf-sol')">
-              <strong>Trend Follow</strong> • SOL • 5m • 3d
-            </button>
+          </div>
+
+          <!-- Saved strategies -->
+          <div id="savedStrategies" class="d-grid gap-2 mb-3">
+            <!-- Populated by JavaScript -->
+          </div>
+
+          <!-- Quick presets -->
+          <div class="border-top pt-2">
+            <div class="small text-muted mb-2">Quick Presets</div>
+            <div class="d-grid gap-2">
+              <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('mr-btc')">
+                <strong>Mean Reversion</strong> • BTC • 5m
+              </button>
+              <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('bo-eth')">
+                <strong>Breakout</strong> • ETH • 5m
+              </button>
+              <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('tf-sol')">
+                <strong>Trend Follow</strong> • SOL • 5m
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -604,13 +625,19 @@
       const config = presets[preset];
       if (!config) return;
 
+      loadConfig(config);
+    }
+
+    function loadConfig(config) {
       document.getElementById('strategy').value = config.strategy;
       document.getElementById('strategy').dispatchEvent(new Event('change'));
 
       setTimeout(() => {
         document.getElementById('symbol').value = config.symbol;
         document.getElementById('timeframe').value = config.timeframe;
-        document.getElementById('days').value = config.days;
+        if (config.days) document.getElementById('days').value = config.days;
+        if (config.initial_capital) document.getElementById('initialCapital').value = config.initial_capital;
+        if (config.min_notional) document.getElementById('minNotional').value = config.min_notional;
 
         Object.entries(config.params).forEach(([key, value]) => {
           const input = document.getElementById(`param_${key}`);
@@ -618,5 +645,110 @@
         });
       }, 100);
     }
+
+    async function loadSavedStrategies() {
+      try {
+        const res = await fetch('/backtest/saved');
+        const data = await res.json();
+        renderSavedStrategies(data.saved || []);
+      } catch (e) {
+        console.error('Failed to load saved strategies:', e);
+      }
+    }
+
+    function renderSavedStrategies(saved) {
+      const container = document.getElementById('savedStrategies');
+
+      if (saved.length === 0) {
+        container.innerHTML = '<div class="small text-muted">No saved strategies yet. Click "Save Configuration" to save one.</div>';
+        return;
+      }
+
+      container.innerHTML = saved.map(s => `
+        <div class="d-flex align-items-center gap-2">
+          <button class="btn btn-sm btn-outline-light text-start flex-grow-1" onclick='loadSavedConfig(${JSON.stringify(s)})'>
+            <strong>${s.name}</strong><br>
+            <span class="small text-muted">${s.strategy} • ${s.symbol} • ${s.timeframe}</span>
+          </button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteSavedStrategy(${s.id})" title="Delete">
+            <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+              <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+            </svg>
+          </button>
+        </div>
+      `).join('');
+    }
+
+    function loadSavedConfig(saved) {
+      loadConfig(saved);
+    }
+
+    async function saveCurrentConfig() {
+      const strategy = document.getElementById('strategy').value;
+      if (!strategy) {
+        alert('Please select a strategy first');
+        return;
+      }
+
+      const name = prompt('Enter a name for this configuration:');
+      if (!name) return;
+
+      // Collect current config
+      const params = {};
+      const paramInputs = document.querySelectorAll('#paramsInputs input');
+      paramInputs.forEach(input => {
+        const value = input.type === 'number' ? parseFloat(input.value) : input.value;
+        params[input.name] = value;
+      });
+
+      const config = {
+        name: name,
+        strategy: strategy,
+        symbol: document.getElementById('symbol').value,
+        timeframe: document.getElementById('timeframe').value,
+        params: params,
+        initial_capital: parseFloat(document.getElementById('initialCapital').value),
+        min_notional: parseFloat(document.getElementById('minNotional').value),
+      };
+
+      try {
+        const res = await fetch('/backtest/saved', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config)
+        });
+
+        const data = await res.json();
+        if (data.error) {
+          alert('Error saving: ' + data.error);
+        } else {
+          alert('Configuration saved!');
+          loadSavedStrategies();
+        }
+      } catch (e) {
+        alert('Error saving: ' + e.message);
+      }
+    }
+
+    async function deleteSavedStrategy(id) {
+      if (!confirm('Delete this saved strategy?')) return;
+
+      try {
+        const res = await fetch(`/backtest/saved/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+
+        if (data.deleted) {
+          loadSavedStrategies();
+        } else {
+          alert('Error deleting: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Error deleting: ' + e.message);
+      }
+    }
+
+    // Load saved strategies on page load
+    loadSavedStrategies();
   </script>
 {% endblock %}

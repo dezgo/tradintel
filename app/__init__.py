@@ -151,6 +151,47 @@ def create_app() -> Flask:
             "timeframes": ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
         })
 
+    @app.get("/backtest/saved")
+    def list_saved_backtests():
+        """List all saved backtest configurations."""
+        from app.storage import store
+        saved = store.list_saved_backtests()
+        return jsonify({"saved": saved})
+
+    @app.post("/backtest/saved")
+    def save_backtest_config():
+        """Save a backtest configuration."""
+        from app.storage import store
+
+        body = request.get_json()
+        if not body or "name" not in body:
+            return jsonify({"error": "Request body must include 'name'"}), 400
+
+        try:
+            backtest_id = store.save_backtest(
+                name=body["name"],
+                strategy=body["strategy"],
+                symbol=body["symbol"],
+                timeframe=body["timeframe"],
+                params=body["params"],
+                initial_capital=body.get("initial_capital", 1000),
+                min_notional=body.get("min_notional", 100),
+            )
+            return jsonify({"id": backtest_id, "name": body["name"]})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.delete("/backtest/saved/<int:backtest_id>")
+    def delete_saved_backtest(backtest_id: int):
+        """Delete a saved backtest configuration."""
+        from app.storage import store
+
+        deleted = store.delete_saved_backtest(backtest_id)
+        if deleted:
+            return jsonify({"deleted": True})
+        else:
+            return jsonify({"error": "Backtest not found"}), 404
+
     @app.post("/backtest")
     def run_backtest():
         """

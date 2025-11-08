@@ -108,6 +108,28 @@ class Storage:
             )
             self._conn.commit()
 
+        # Migrate to version 3: add saved_backtests table
+        if ver < 3:
+            cur.executescript(
+                """
+                BEGIN;
+                CREATE TABLE IF NOT EXISTS saved_backtests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    strategy TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    params_json TEXT NOT NULL,
+                    initial_capital REAL NOT NULL,
+                    min_notional REAL NOT NULL,
+                    created_ts INTEGER NOT NULL
+                );
+                PRAGMA user_version = 3;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
     # ── Trades ────────────────────────────────────────────────────────────────
     def record_trade(
         self, bot_name: str, symbol: str, side: str, qty: float, price: float, ts: Optional[int] = None
@@ -457,6 +479,62 @@ class Storage:
                 "open_ts": d["open_ts"], "unrealized": unreal
             })
         return sorted(out, key=lambda x: x["open_ts"], reverse=True)
+
+    # ── Saved backtests ────────────────────────────────────────────────────────
+    def save_backtest(self, *, name: str, strategy: str, symbol: str, timeframe: str,
+                      params: Dict[str, Any], initial_capital: float, min_notional: float) -> int:
+        """Save a backtest configuration. Returns the saved ID."""
+        params_json = json.dumps(params, separators=(",", ":"))
+        now = int(time.time())
+
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                INSERT INTO saved_backtests(name, strategy, symbol, timeframe, params_json, initial_capital, min_notional, created_ts)
+                VALUES(?,?,?,?,?,?,?,?)
+                ON CONFLICT(name) DO UPDATE SET
+                    strategy=excluded.strategy,
+                    symbol=excluded.symbol,
+                    timeframe=excluded.timeframe,
+                    params_json=excluded.params_json,
+                    initial_capital=excluded.initial_capital,
+                    min_notional=excluded.min_notional,
+                    created_ts=excluded.created_ts
+                """,
+                (name, strategy, symbol, timeframe, params_json, float(initial_capital), float(min_notional), now)
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def list_saved_backtests(self) -> list[dict]:
+        """List all saved backtest configurations."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT id, name, strategy, symbol, timeframe, params_json, initial_capital, min_notional, created_ts FROM saved_backtests ORDER BY created_ts DESC"
+            )
+            rows = cur.fetchall()
+
+        return [
+            {
+                "id": int(r[0]),
+                "name": r[1],
+                "strategy": r[2],
+                "symbol": r[3],
+                "timeframe": r[4],
+                "params": json.loads(r[5]),
+                "initial_capital": float(r[6]),
+                "min_notional": float(r[7]),
+                "created_ts": int(r[8]),
+            }
+            for r in rows
+        ]
+
+    def delete_saved_backtest(self, backtest_id: int) -> bool:
+        """Delete a saved backtest configuration. Returns True if deleted."""
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM saved_backtests WHERE id = ?", (int(backtest_id),))
+            self._conn.commit()
+            return cur.rowcount > 0
 
     # ── Historical bars cache ──────────────────────────────────────────────────
     def store_bars(self, symbol: str, timeframe: str, bars: list[tuple[int, float, float, float, float, float]], source: str = "gate") -> None:
