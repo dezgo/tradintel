@@ -83,6 +83,31 @@ class Storage:
             )
             self._conn.commit()
 
+        # Migrate to version 2: add bars table for historical data caching
+        if ver < 2:
+            cur.executescript(
+                """
+                BEGIN;
+                CREATE TABLE IF NOT EXISTS bars (
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    ts INTEGER NOT NULL,
+                    open REAL NOT NULL,
+                    high REAL NOT NULL,
+                    low REAL NOT NULL,
+                    close REAL NOT NULL,
+                    volume REAL NOT NULL,
+                    source TEXT NOT NULL,  -- 'gate', 'coingecko', etc.
+                    PRIMARY KEY (symbol, timeframe, ts)
+                );
+                CREATE INDEX IF NOT EXISTS idx_bars_symbol_tf ON bars(symbol, timeframe);
+                CREATE INDEX IF NOT EXISTS idx_bars_ts ON bars(ts);
+                PRAGMA user_version = 2;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
     # ── Trades ────────────────────────────────────────────────────────────────
     def record_trade(
         self, bot_name: str, symbol: str, side: str, qty: float, price: float, ts: Optional[int] = None
@@ -432,6 +457,80 @@ class Storage:
                 "open_ts": d["open_ts"], "unrealized": unreal
             })
         return sorted(out, key=lambda x: x["open_ts"], reverse=True)
+
+    # ── Historical bars cache ──────────────────────────────────────────────────
+    def store_bars(self, symbol: str, timeframe: str, bars: list[tuple[int, float, float, float, float, float]], source: str = "gate") -> None:
+        """
+        Store historical bars in cache. bars = [(ts, open, high, low, close, volume), ...]
+        Uses INSERT OR IGNORE to avoid duplicates.
+        """
+        with self._lock:
+            self._conn.executemany(
+                "INSERT OR IGNORE INTO bars(symbol, timeframe, ts, open, high, low, close, volume, source) VALUES(?,?,?,?,?,?,?,?,?)",
+                [(symbol, timeframe, int(ts), float(o), float(h), float(l), float(c), float(v), source) for ts, o, h, l, c, v in bars]
+            )
+            self._conn.commit()
+
+    def get_bars(self, symbol: str, timeframe: str, start_ts: int | None = None, end_ts: int | None = None, limit: int | None = None) -> list[dict]:
+        """
+        Retrieve cached bars for symbol+timeframe, optionally filtered by time range.
+        Returns list of dicts sorted by timestamp (oldest first).
+        """
+        sql = ["SELECT ts, open, high, low, close, volume, source FROM bars WHERE symbol = ? AND timeframe = ?"]
+        args: list = [symbol, timeframe]
+
+        if start_ts is not None:
+            sql.append("AND ts >= ?")
+            args.append(int(start_ts))
+        if end_ts is not None:
+            sql.append("AND ts <= ?")
+            args.append(int(end_ts))
+
+        sql.append("ORDER BY ts ASC")
+
+        if limit is not None:
+            sql.append("LIMIT ?")
+            args.append(int(limit))
+
+        with self._lock:
+            cur = self._conn.execute(" ".join(sql), args)
+            rows = cur.fetchall()
+
+        return [
+            {
+                "ts": int(r[0]),
+                "open": float(r[1]),
+                "high": float(r[2]),
+                "low": float(r[3]),
+                "close": float(r[4]),
+                "volume": float(r[5]),
+                "source": r[6],
+            }
+            for r in rows
+        ]
+
+    def get_bar_coverage(self, symbol: str, timeframe: str) -> dict[str, Any] | None:
+        """
+        Get coverage statistics for cached bars (min/max timestamp, count).
+        Returns None if no bars cached.
+        """
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT MIN(ts), MAX(ts), COUNT(*) FROM bars WHERE symbol = ? AND timeframe = ?",
+                (symbol, timeframe)
+            )
+            row = cur.fetchone()
+
+        if not row or row[2] == 0:
+            return None
+
+        return {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "start_ts": int(row[0]),
+            "end_ts": int(row[1]),
+            "count": int(row[2]),
+        }
 
 
 store = Storage(_DB_DEFAULT)  # simple singleton

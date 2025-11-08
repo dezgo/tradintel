@@ -121,6 +121,10 @@ def create_app() -> Flask:
     def backtest_ui():
         return render_template("backtest.html")
 
+    @app.get("/data-ui")
+    def data_ui():
+        return render_template("data.html")
+
     @app.get("/backtest/strategies")
     def backtest_strategies():
         """List available strategies and their parameter grids."""
@@ -210,7 +214,11 @@ def create_app() -> Flask:
 
         # Run backtest
         try:
-            data_provider = GateAdapter()
+            # Use cached data provider for better performance
+            from app.data_cache import CachedDataProvider
+            gate = GateAdapter()
+            data_provider = CachedDataProvider(gate, source_name="gate")
+
             backtester = Backtester(
                 initial_capital=initial_capital,
                 min_notional=min_notional,
@@ -241,5 +249,76 @@ def create_app() -> Flask:
 
         except Exception as e:
             return jsonify({"error": f"Backtest failed: {str(e)}"}), 500
+
+    @app.get("/data/coverage")
+    def data_coverage():
+        """
+        Get cache coverage for all symbols/timeframes.
+
+        Returns:
+        {
+            "items": [
+                {"symbol": "BTC_USDT", "timeframe": "1d", "start_ts": ..., "end_ts": ..., "count": 365},
+                ...
+            ]
+        }
+        """
+        from app.storage import store
+
+        # Get all unique symbol/timeframe combinations from cache
+        with store._lock:
+            cur = store._conn.execute(
+                "SELECT symbol, timeframe, MIN(ts), MAX(ts), COUNT(*) FROM bars GROUP BY symbol, timeframe"
+            )
+            rows = cur.fetchall()
+
+        items = [
+            {
+                "symbol": r[0],
+                "timeframe": r[1],
+                "start_ts": int(r[2]),
+                "end_ts": int(r[3]),
+                "count": int(r[4]),
+            }
+            for r in rows
+        ]
+
+        return jsonify({"items": items})
+
+    @app.post("/data/backfill")
+    def backfill_data():
+        """
+        Backfill daily data from CoinGecko.
+
+        Request body:
+        {
+            "symbols": ["BTC_USDT", "ETH_USDT", "SOL_USDT"],
+            "days": 365  // optional, defaults to 365
+        }
+
+        Returns:
+        {
+            "results": {
+                "BTC_USDT": "✓ Cached 365 daily bars",
+                "ETH_USDT": "✓ Cached 365 daily bars",
+                ...
+            }
+        }
+        """
+        from app.data_cache import backfill_daily_data
+
+        body = request.get_json()
+        if not body or "symbols" not in body:
+            return jsonify({"error": "Request body must include 'symbols' array"}), 400
+
+        symbols = body.get("symbols", [])
+        days = body.get("days", 365)
+
+        if not isinstance(symbols, list) or not symbols:
+            return jsonify({"error": "'symbols' must be a non-empty array"}), 400
+
+        results = backfill_daily_data(symbols, days)
+
+        return jsonify({"results": results})
 
     return app
