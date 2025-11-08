@@ -43,6 +43,7 @@
   .table-dark tbody tr { background: var(--table-row); }
   .table-dark tbody tr:nth-child(odd) { background: var(--table-row-alt); }
   .table-dark td, .table-dark th { border-color: var(--panel-border); }
+  .table-dark td.text-muted { color: var(--text-muted) !important; }
 
   /* Badges */
   .badge-up   { background: var(--green-ink); color: var(--text); border: 1px solid var(--green); }
@@ -578,6 +579,22 @@
       const timestamps = equityCurve.map(p => p.ts);
       const labels = timestamps.map((ts, idx) => formatSmartLabel(ts, idx, timestamps));
 
+      // Calculate actual time range from data
+      const firstDate = new Date(timestamps[0] * 1000);
+      const lastDate = new Date(timestamps[timestamps.length - 1] * 1000);
+      const actualDays = Math.round((lastDate - firstDate) / (1000 * 60 * 60 * 24));
+
+      // Format time range for title
+      let timeRange;
+      if (actualDays < 1) {
+        const hours = Math.round((lastDate - firstDate) / (1000 * 60 * 60));
+        timeRange = `${hours}h`;
+      } else if (actualDays === 1) {
+        timeRange = '1 day';
+      } else {
+        timeRange = `${actualDays} days`;
+      }
+
       equityChart = new Chart(ctx, {
         type: 'line',
         data: {
@@ -601,7 +618,7 @@
             legend: { display: false },
             title: {
               display: true,
-              text: `${config.strategy} • ${config.symbol} • ${config.timeframe} • ${config.days} days`,
+              text: `${config.strategy} • ${config.symbol} • ${config.timeframe} • ${timeRange}`,
               color: 'rgb(232, 237, 243)',
               padding: 16,
               font: { size: 14 }
