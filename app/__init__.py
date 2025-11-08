@@ -240,6 +240,7 @@ def create_app() -> Flask:
     @app.get("/fees.json")
     def fee_statistics():
         """Return fee statistics for the portfolio."""
+        from app.storage import store
         stats = store.fee_statistics()
         return jsonify(stats)
 
