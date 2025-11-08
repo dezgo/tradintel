@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import List
 from app.core import DataProvider
 from app.data import GateAdapter
-from app.execution import PaperExec
+from app.execution import PaperExec, BinanceTestnetExec
 from app.bots import TradingBot
 from app.managers import StrategyManager, PortfolioManager
 from app.strategies import MeanReversion, Breakout, TrendFollow, MR_GRID, BO_GRID, TF_GRID
@@ -13,6 +13,19 @@ from app.storage import store
 
 SYMBOLS = ["BTC_USDT", "ETH_USDT", "SOL_USDT"]
 TF = "1m"
+
+# Execution mode: 'paper' or 'binance_testnet'
+EXECUTION_MODE = "binance_testnet"  # Change this to switch between paper and testnet
+
+
+def _get_execution_client(bot_name: str):
+    """Get the appropriate execution client based on EXECUTION_MODE."""
+    if EXECUTION_MODE == "binance_testnet":
+        return BinanceTestnetExec(bot_name)
+    elif EXECUTION_MODE == "paper":
+        return PaperExec(bot_name)
+    else:
+        raise ValueError(f"Unknown execution mode: {EXECUTION_MODE}")
 
 
 def _apply_saved_state(bots: list) -> None:
@@ -60,15 +73,15 @@ def build_portfolio(data_provider: DataProvider | None = None) -> PortfolioManag
     for sym in SYMBOLS:
         for idx, p in enumerate(MR_GRID, start=1):
             name = f"mr_{sym.lower()}_{TF}_p{idx}"
-            bots_mr.append(TradingBot(name, sym, TF, MeanReversion(**p), data, PaperExec(name), 1000.0))
+            bots_mr.append(TradingBot(name, sym, TF, MeanReversion(**p), data, _get_execution_client(name), 1000.0))
     for sym in SYMBOLS:
         for idx, p in enumerate(BO_GRID, start=1):
             name = f"bo_{sym.lower()}_{TF}_p{idx}"
-            bots_bo.append(TradingBot(name, sym, TF, Breakout(**p), data, PaperExec(name), 1000.0))
+            bots_bo.append(TradingBot(name, sym, TF, Breakout(**p), data, _get_execution_client(name), 1000.0))
     for sym in SYMBOLS:
         for idx, p in enumerate(TF_GRID, start=1):
             name = f"tf_{sym.lower()}_{TF}_p{idx}"
-            bots_tf.append(TradingBot(name, sym, TF, TrendFollow(**p), data, PaperExec(name), 1000.0))
+            bots_tf.append(TradingBot(name, sym, TF, TrendFollow(**p), data, _get_execution_client(name), 1000.0))
 
     # hydrate from DB (allocations, cash/positions, scores)
     _apply_saved_state([*bots_mr, *bots_bo, *bots_tf])
