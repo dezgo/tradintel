@@ -13,6 +13,7 @@ class StrategyManager:
     bots: List[TradingBot]
     min_alloc_frac: float = 0.05
     max_alloc_frac: float = 0.80
+    _step_counter: int = 0
 
     def step(self) -> None:
         # 1) Ensure bots exist in DB BEFORE any trades happen
@@ -37,8 +38,12 @@ class StrategyManager:
         for b in self.bots:
             b.step()
 
-        # 3) Rebalance and persist updated state
-        self._rebalance_within_strategy()
+        # 3) Rebalance only every 5 steps (5 minutes) to reduce allocation churn
+        if self._step_counter % 5 == 0:
+            self._rebalance_within_strategy()
+        self._step_counter += 1
+
+        # 4) Persist updated state
         for b in self.bots:
             store.upsert_bot(
                 name=b.name,
@@ -76,11 +81,15 @@ class PortfolioManager:
     managers: List[StrategyManager]
     min_alloc_frac: float = 0.10
     max_alloc_frac: float = 0.70
+    _step_counter: int = 0
 
     def step(self) -> None:
         for m in self.managers:
             m.step()
-        self._rebalance_across_strategies()
+        # Rebalance across strategies only every 5 steps (5 minutes)
+        if self._step_counter % 5 == 0:
+            self._rebalance_across_strategies()
+        self._step_counter += 1
 
     def snapshot(self) -> Dict:
         counts = store.trade_counts()  # DB authoritative counts
