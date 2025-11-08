@@ -83,6 +83,123 @@ class Storage:
             )
             self._conn.commit()
 
+        # Migrate to version 2: add bars table for historical data caching
+        if ver < 2:
+            cur.executescript(
+                """
+                BEGIN;
+                CREATE TABLE IF NOT EXISTS bars (
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    ts INTEGER NOT NULL,
+                    open REAL NOT NULL,
+                    high REAL NOT NULL,
+                    low REAL NOT NULL,
+                    close REAL NOT NULL,
+                    volume REAL NOT NULL,
+                    source TEXT NOT NULL,  -- 'gate', 'coingecko', etc.
+                    PRIMARY KEY (symbol, timeframe, ts)
+                );
+                CREATE INDEX IF NOT EXISTS idx_bars_symbol_tf ON bars(symbol, timeframe);
+                CREATE INDEX IF NOT EXISTS idx_bars_ts ON bars(ts);
+                PRAGMA user_version = 2;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
+        # Migrate to version 3: add saved_backtests table
+        if ver < 3:
+            cur.executescript(
+                """
+                BEGIN;
+                CREATE TABLE IF NOT EXISTS saved_backtests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    strategy TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    params_json TEXT NOT NULL,
+                    initial_capital REAL NOT NULL,
+                    min_notional REAL NOT NULL,
+                    created_ts INTEGER NOT NULL
+                );
+                PRAGMA user_version = 3;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
+        # Migrate to version 4: add optimization_results table
+        if ver < 4:
+            cur.executescript(
+                """
+                BEGIN;
+                CREATE TABLE IF NOT EXISTS optimization_results (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    strategy TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    params_json TEXT NOT NULL,
+                    score REAL NOT NULL,
+                    total_return REAL NOT NULL,
+                    sharpe_ratio REAL NOT NULL,
+                    max_drawdown REAL NOT NULL,
+                    total_trades INTEGER NOT NULL,
+                    win_rate REAL NOT NULL,
+                    tested_ts INTEGER NOT NULL,
+                    UNIQUE(strategy, symbol, timeframe, params_json)
+                );
+                CREATE INDEX IF NOT EXISTS idx_opt_score ON optimization_results(score DESC);
+                CREATE INDEX IF NOT EXISTS idx_opt_strategy ON optimization_results(strategy, symbol, timeframe);
+                PRAGMA user_version = 4;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
+        # Migrate to version 5: add days column to saved_backtests and optimization_results
+        if ver < 5:
+            cur.executescript(
+                """
+                BEGIN;
+                ALTER TABLE saved_backtests ADD COLUMN days INTEGER DEFAULT 365;
+                ALTER TABLE optimization_results ADD COLUMN days INTEGER DEFAULT 365;
+                PRAGMA user_version = 5;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
+        # Migrate to version 6: add evolved_strategies table for genetic algorithm results
+        if ver < 6:
+            cur.executescript(
+                """
+                BEGIN;
+                CREATE TABLE IF NOT EXISTS evolved_strategies (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    genome_json TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    score REAL NOT NULL,
+                    total_return REAL NOT NULL,
+                    sharpe_ratio REAL NOT NULL,
+                    max_drawdown REAL NOT NULL,
+                    total_trades INTEGER NOT NULL,
+                    win_rate REAL NOT NULL,
+                    generation INTEGER NOT NULL,
+                    days INTEGER NOT NULL,
+                    tested_ts INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_evolved_score ON evolved_strategies(score DESC);
+                CREATE INDEX IF NOT EXISTS idx_evolved_generation ON evolved_strategies(generation DESC);
+                CREATE INDEX IF NOT EXISTS idx_evolved_symbol ON evolved_strategies(symbol, timeframe);
+                PRAGMA user_version = 6;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
     # ── Trades ────────────────────────────────────────────────────────────────
     def record_trade(
         self, bot_name: str, symbol: str, side: str, qty: float, price: float, ts: Optional[int] = None
@@ -432,6 +549,379 @@ class Storage:
                 "open_ts": d["open_ts"], "unrealized": unreal
             })
         return sorted(out, key=lambda x: x["open_ts"], reverse=True)
+
+    # ── Saved backtests ────────────────────────────────────────────────────────
+    def save_backtest(self, *, name: str, strategy: str, symbol: str, timeframe: str,
+                      params: Dict[str, Any], initial_capital: float, min_notional: float, days: int = 365) -> int:
+        """Save a backtest configuration. Returns the saved ID."""
+        params_json = json.dumps(params, separators=(",", ":"))
+        now = int(time.time())
+
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                INSERT INTO saved_backtests(name, strategy, symbol, timeframe, params_json, initial_capital, min_notional, days, created_ts)
+                VALUES(?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(name) DO UPDATE SET
+                    strategy=excluded.strategy,
+                    symbol=excluded.symbol,
+                    timeframe=excluded.timeframe,
+                    params_json=excluded.params_json,
+                    initial_capital=excluded.initial_capital,
+                    min_notional=excluded.min_notional,
+                    days=excluded.days,
+                    created_ts=excluded.created_ts
+                """,
+                (name, strategy, symbol, timeframe, params_json, float(initial_capital), float(min_notional), int(days), now)
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def list_saved_backtests(self) -> list[dict]:
+        """List all saved backtest configurations."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT id, name, strategy, symbol, timeframe, params_json, initial_capital, min_notional, days, created_ts FROM saved_backtests ORDER BY created_ts DESC"
+            )
+            rows = cur.fetchall()
+
+        return [
+            {
+                "id": int(r[0]),
+                "name": r[1],
+                "strategy": r[2],
+                "symbol": r[3],
+                "timeframe": r[4],
+                "params": json.loads(r[5]),
+                "initial_capital": float(r[6]),
+                "min_notional": float(r[7]),
+                "days": int(r[8]),
+                "created_ts": int(r[9]),
+            }
+            for r in rows
+        ]
+
+    def delete_saved_backtest(self, backtest_id: int) -> bool:
+        """Delete a saved backtest configuration. Returns True if deleted."""
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM saved_backtests WHERE id = ?", (int(backtest_id),))
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    # ── Optimization results ───────────────────────────────────────────────────
+    def save_optimization_result(
+        self,
+        *,
+        strategy: str,
+        symbol: str,
+        timeframe: str,
+        params: Dict[str, Any],
+        score: float,
+        total_return: float,
+        sharpe_ratio: float,
+        max_drawdown: float,
+        total_trades: int,
+        win_rate: float,
+        days: int,
+        tested_ts: int,
+    ) -> int:
+        """Save an optimization result. Updates if same config exists."""
+        params_json = json.dumps(params, separators=(",", ":"))
+
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                INSERT INTO optimization_results(
+                    strategy, symbol, timeframe, params_json, score,
+                    total_return, sharpe_ratio, max_drawdown, total_trades, win_rate, days, tested_ts
+                )
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(strategy, symbol, timeframe, params_json) DO UPDATE SET
+                    score=excluded.score,
+                    total_return=excluded.total_return,
+                    sharpe_ratio=excluded.sharpe_ratio,
+                    max_drawdown=excluded.max_drawdown,
+                    total_trades=excluded.total_trades,
+                    win_rate=excluded.win_rate,
+                    days=excluded.days,
+                    tested_ts=excluded.tested_ts
+                """,
+                (
+                    strategy,
+                    symbol,
+                    timeframe,
+                    params_json,
+                    float(score),
+                    float(total_return),
+                    float(sharpe_ratio),
+                    float(max_drawdown),
+                    int(total_trades),
+                    float(win_rate),
+                    int(days),
+                    int(tested_ts),
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def list_optimization_results(
+        self, strategy: str = None, symbol: str = None, limit: int = 100
+    ) -> list[dict]:
+        """
+        List optimization results, optionally filtered by strategy/symbol.
+        Returns top results sorted by score (best first).
+        """
+        sql = [
+            """
+            SELECT id, strategy, symbol, timeframe, params_json, score,
+                   total_return, sharpe_ratio, max_drawdown, total_trades, win_rate, days, tested_ts
+            FROM optimization_results
+            WHERE 1=1
+            """
+        ]
+        args = []
+
+        if strategy:
+            sql.append("AND strategy = ?")
+            args.append(strategy)
+
+        if symbol:
+            sql.append("AND symbol = ?")
+            args.append(symbol)
+
+        sql.append("ORDER BY score DESC LIMIT ?")
+        args.append(int(limit))
+
+        with self._lock:
+            cur = self._conn.execute(" ".join(sql), args)
+            rows = cur.fetchall()
+
+        return [
+            {
+                "id": int(r[0]),
+                "strategy": r[1],
+                "symbol": r[2],
+                "timeframe": r[3],
+                "params": json.loads(r[4]),
+                "score": float(r[5]),
+                "total_return": float(r[6]),
+                "sharpe_ratio": float(r[7]),
+                "max_drawdown": float(r[8]),
+                "total_trades": int(r[9]),
+                "win_rate": float(r[10]),
+                "days": int(r[11]),
+                "tested_ts": int(r[12]),
+            }
+            for r in rows
+        ]
+
+    # ── Evolved strategies (genetic algorithm) ─────────────────────────────────
+    def save_evolved_strategy(
+        self,
+        *,
+        genome: Dict[str, Any],
+        symbol: str,
+        timeframe: str,
+        score: float,
+        total_return: float,
+        sharpe_ratio: float,
+        max_drawdown: float,
+        total_trades: int,
+        win_rate: float,
+        generation: int,
+        days: int,
+        tested_ts: int,
+    ) -> int:
+        """Save an evolved strategy from genetic algorithm."""
+        genome_json = json.dumps(genome, separators=(",", ":"))
+
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                INSERT INTO evolved_strategies(
+                    genome_json, symbol, timeframe, score,
+                    total_return, sharpe_ratio, max_drawdown, total_trades, win_rate,
+                    generation, days, tested_ts
+                )
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    genome_json,
+                    symbol,
+                    timeframe,
+                    float(score),
+                    float(total_return),
+                    float(sharpe_ratio),
+                    float(max_drawdown),
+                    int(total_trades),
+                    float(win_rate),
+                    int(generation),
+                    int(days),
+                    int(tested_ts),
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def list_evolved_strategies(
+        self, symbol: str = None, min_score: float = None, limit: int = 100
+    ) -> list[dict]:
+        """
+        List evolved strategies, optionally filtered by symbol and minimum score.
+        Returns top results sorted by score (best first).
+        """
+        sql = [
+            """
+            SELECT id, genome_json, symbol, timeframe, score,
+                   total_return, sharpe_ratio, max_drawdown, total_trades, win_rate,
+                   generation, days, tested_ts
+            FROM evolved_strategies
+            WHERE 1=1
+            """
+        ]
+        args = []
+
+        if symbol:
+            sql.append("AND symbol = ?")
+            args.append(symbol)
+
+        if min_score is not None:
+            sql.append("AND score >= ?")
+            args.append(float(min_score))
+
+        sql.append("ORDER BY score DESC LIMIT ?")
+        args.append(int(limit))
+
+        with self._lock:
+            cur = self._conn.execute(" ".join(sql), args)
+            rows = cur.fetchall()
+
+        return [
+            {
+                "id": int(r[0]),
+                "genome": json.loads(r[1]),
+                "symbol": r[2],
+                "timeframe": r[3],
+                "score": float(r[4]),
+                "total_return": float(r[5]),
+                "sharpe_ratio": float(r[6]),
+                "max_drawdown": float(r[7]),
+                "total_trades": int(r[8]),
+                "win_rate": float(r[9]),
+                "generation": int(r[10]),
+                "days": int(r[11]),
+                "tested_ts": int(r[12]),
+            }
+            for r in rows
+        ]
+
+    def get_evolved_strategy(self, strategy_id: int) -> dict | None:
+        """Get a specific evolved strategy by ID."""
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT id, genome_json, symbol, timeframe, score,
+                       total_return, sharpe_ratio, max_drawdown, total_trades, win_rate,
+                       generation, days, tested_ts
+                FROM evolved_strategies
+                WHERE id = ?
+                """,
+                (int(strategy_id),)
+            )
+            row = cur.fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "id": int(row[0]),
+            "genome": json.loads(row[1]),
+            "symbol": row[2],
+            "timeframe": row[3],
+            "score": float(row[4]),
+            "total_return": float(row[5]),
+            "sharpe_ratio": float(row[6]),
+            "max_drawdown": float(row[7]),
+            "total_trades": int(row[8]),
+            "win_rate": float(row[9]),
+            "generation": int(row[10]),
+            "days": int(row[11]),
+            "tested_ts": int(row[12]),
+        }
+
+    # ── Historical bars cache ──────────────────────────────────────────────────
+    def store_bars(self, symbol: str, timeframe: str, bars: list[tuple[int, float, float, float, float, float]], source: str = "gate") -> None:
+        """
+        Store historical bars in cache. bars = [(ts, open, high, low, close, volume), ...]
+        Uses INSERT OR IGNORE to avoid duplicates.
+        """
+        with self._lock:
+            self._conn.executemany(
+                "INSERT OR IGNORE INTO bars(symbol, timeframe, ts, open, high, low, close, volume, source) VALUES(?,?,?,?,?,?,?,?,?)",
+                [(symbol, timeframe, int(ts), float(o), float(h), float(l), float(c), float(v), source) for ts, o, h, l, c, v in bars]
+            )
+            self._conn.commit()
+
+    def get_bars(self, symbol: str, timeframe: str, start_ts: int | None = None, end_ts: int | None = None, limit: int | None = None) -> list[dict]:
+        """
+        Retrieve cached bars for symbol+timeframe, optionally filtered by time range.
+        Returns list of dicts sorted by timestamp (oldest first).
+        """
+        sql = ["SELECT ts, open, high, low, close, volume, source FROM bars WHERE symbol = ? AND timeframe = ?"]
+        args: list = [symbol, timeframe]
+
+        if start_ts is not None:
+            sql.append("AND ts >= ?")
+            args.append(int(start_ts))
+        if end_ts is not None:
+            sql.append("AND ts <= ?")
+            args.append(int(end_ts))
+
+        sql.append("ORDER BY ts ASC")
+
+        if limit is not None:
+            sql.append("LIMIT ?")
+            args.append(int(limit))
+
+        with self._lock:
+            cur = self._conn.execute(" ".join(sql), args)
+            rows = cur.fetchall()
+
+        return [
+            {
+                "ts": int(r[0]),
+                "open": float(r[1]),
+                "high": float(r[2]),
+                "low": float(r[3]),
+                "close": float(r[4]),
+                "volume": float(r[5]),
+                "source": r[6],
+            }
+            for r in rows
+        ]
+
+    def get_bar_coverage(self, symbol: str, timeframe: str) -> dict[str, Any] | None:
+        """
+        Get coverage statistics for cached bars (min/max timestamp, count).
+        Returns None if no bars cached.
+        """
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT MIN(ts), MAX(ts), COUNT(*) FROM bars WHERE symbol = ? AND timeframe = ?",
+                (symbol, timeframe)
+            )
+            row = cur.fetchone()
+
+        if not row or row[2] == 0:
+            return None
+
+        return {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "start_ts": int(row[0]),
+            "end_ts": int(row[1]),
+            "count": int(row[2]),
+        }
 
 
 store = Storage(_DB_DEFAULT)  # simple singleton

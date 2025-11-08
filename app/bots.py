@@ -2,6 +2,7 @@
 # app/bots.py
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import List, Optional
 from app.core import Bar, Strategy, DataProvider, ExecutionClient
@@ -42,6 +43,7 @@ class TradingBot:
         self.risk_per_trade = float(risk_per_trade)
         self.metrics = BotMetrics(cash=self.allocation, equity=self.allocation)
         self._last_bar_ts: int | None = None
+        self._last_trade_ts: int | None = None  # Track last trade time for cooldown
 
     # Simplified stepping: compute target exposure, rebalance position notionally
     def step(self) -> None:
@@ -66,9 +68,17 @@ class TradingBot:
         # 3) Delta to trade
         delta = target_qty - self.metrics.pos_qty
 
-        min_notional = 10.0  # don’t trade if change is < $5
+        min_notional = 100.0  # don't trade if change is < $100
         if abs(delta) * price < min_notional:
             # still update equity mark-to-market, but skip order
+            self.metrics.avg_price = price
+            self.metrics.equity = self.metrics.cash + self.metrics.pos_qty * price
+            return
+
+        # Trade cooldown: prevent trading more than once per 5 minutes
+        now = int(time.time())
+        if self._last_trade_ts is not None and (now - self._last_trade_ts) < 300:
+            # Still update equity but skip trading
             self.metrics.avg_price = price
             self.metrics.equity = self.metrics.cash + self.metrics.pos_qty * price
             return
@@ -94,6 +104,7 @@ class TradingBot:
                 self.metrics.pos_qty -= trade_qty
 
             self.metrics.trades += 1
+            self._last_trade_ts = now  # Update last trade timestamp
 
         # 4) Mark-to-market
         self.metrics.avg_price = price

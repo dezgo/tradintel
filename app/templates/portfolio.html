@@ -1,54 +1,16 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>TradingBot — Worker Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Bootstrap (CDN) -->
-  <link
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-    rel="stylesheet"
-    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
-    crossorigin="anonymous"
-  />
-<style>
-  :root {
-    --bg: #0c1118;          /* page */
-    --panel: #111826;       /* cards */
-    --panel-border: #243041;/* borders */
-    --text: #e8edf3;        /* primary text */
-    --text-muted: #b7c2cf;  /* secondary text (lighter than before) */
-    --table-head: #1a2332;
-    --table-row: #121a28;
-    --table-row-alt: #152032;
-    --green: #17b26a;
-    --green-ink: #062a1a;
-    --red: #f04438;
-    --red-ink: #2c0b0b;
-    --blue: #3b82f6;
-    --blue-ink: #1e3a8a;
-  }
+{% extends "base.html" %}
 
-  body { background: var(--bg); color: var(--text); }
-  .muted { color: var(--text-muted); }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+{% block title %}TradingBot — Portfolio{% endblock %}
+{% block page_title %}TradingBot — Portfolio{% endblock %}
+{% set active_page = 'portfolio' %}
 
-  .card { background: var(--panel); border: 1px solid var(--panel-border); }
-  .card .card-body { color: var(--text); }
+{% block extra_styles %}
+  /* Badges (stronger contrast) */
+  .badge-up   { background: #062a1a; color: var(--text); border: 1px solid var(--green); }
+  .badge-down { background: #2c0b0b; color: var(--text); border: 1px solid var(--red); }
+  .badge-active { background: #1e3a8a; color: var(--text); border: 1px solid var(--blue); }
 
-  /* Table */
-  .table-dark { --bs-table-color: var(--text); --bs-table-bg: transparent; }
-  .table-dark thead th { background: var(--table-head); color: var(--text); border-color: var(--panel-border); }
-  .table-dark tbody tr { background: var(--table-row); }
-  .table-dark tbody tr:nth-child(odd) { background: var(--table-row-alt); }
-  .table-dark td, .table-dark th { border-color: var(--panel-border); }
-
-  /* Badges with stronger contrast */
-  .badge-up   { background: var(--green-ink); color: var(--text); border: 1px solid var(--green); }
-  .badge-down { background: var(--red-ink);   color: var(--text); border: 1px solid var(--red); }
-  .badge-active { background: var(--blue-ink); color: var(--text); border: 1px solid var(--blue); }
-
-  /* Section headers */
+  /* Section headers & muted bits */
   .section-title { color: var(--text); opacity: 0.95; }
 
   /* Custom select styling */
@@ -62,122 +24,136 @@
   /* Collapsible sections */
   .collapse-toggle { cursor: pointer; user-select: none; }
   .collapse-toggle:hover { opacity: 0.8; }
-</style>
+{% endblock %}
 
-</head>
-<body class="p-3">
-  <div class="container-fluid">
-    <div class="d-flex align-items-center justify-content-between mb-3">
-      <h1 class="h3 mb-0">Worker Dashboard</h1>
-      <div class="d-flex align-items-center gap-3">
-        <span class="muted small">Auto-refresh</span>
-        <div class="form-check form-switch">
-          <input class="form-check-input" type="checkbox" id="autoRefresh" checked />
-        </div>
-        <select id="interval" class="form-select form-select-sm" style="width:120px">
-          <option value="3">3s</option>
-          <option value="5" selected>5s</option>
-          <option value="10">10s</option>
+{% block extra_nav %}
+  <span class="muted small">Auto-refresh</span>
+  <div class="form-check form-switch">
+    <input class="form-check-input" type="checkbox" id="autoRefresh" checked />
+  </div>
+  <select id="interval" class="form-select form-select-sm" style="width:120px">
+    <option value="3">3s</option>
+    <option value="5" selected>5s</option>
+    <option value="10">10s</option>
+  </select>
+  <button class="btn btn-sm btn-outline-light" id="refreshBtn">Refresh</button>
+  <span class="mono small muted" id="tfTag"></span>
+{% endblock %}
+
+{% block content %}
+
+  <!-- Top summary + (optional) live prices placeholder -->
+  <div id="summary" class="mb-3"></div>
+  <div id="prices" class="mb-3"></div>
+
+  <!-- Global symbol filter (shared note area on right) -->
+  <div class="card mb-3">
+    <div class="card-body d-flex flex-wrap gap-3 align-items-center">
+      <h2 class="h6 mb-0 section-title">Filter</h2>
+      <div class="d-flex align-items-center gap-2">
+        <label for="symFilter" class="muted small">Symbol</label>
+        <select id="symFilter" class="form-select form-select-sm" style="width: 160px;">
+          <option value="">All</option>
+          <option>BTC_USDT</option>
+          <option>ETH_USDT</option>
+          <option>SOL_USDT</option>
         </select>
-        <button class="btn btn-sm btn-outline-light" id="refreshBtn">Refresh</button>
-        <span class="mono small muted" id="tfTag"></span>
       </div>
+      <div class="ms-auto mono small muted" id="filterNote"></div>
     </div>
-
-    <!-- Summary -->
-    <div id="summary" class="mb-3"></div>
-
-    <!-- Strategy Overview -->
-    <div id="strategyOverview" class="mb-3"></div>
-
-    <!-- Auto-Assignment Controls -->
-    <div class="card mb-3">
-      <div class="card-body">
-        <h2 class="h5 mb-3 section-title">Automatic Strategy Assignment</h2>
-        <div class="d-flex align-items-center gap-3 flex-wrap">
-          <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" id="autoRebalanceToggle" />
-            <label class="form-check-label" for="autoRebalanceToggle">
-              Enable Auto-Assignment (Moves underperforming workers to best strategy every 60 bars)
-            </label>
-          </div>
-          <button class="btn btn-sm btn-primary" id="manualRebalanceBtn">Trigger Now</button>
-          <div class="ms-auto muted small" id="rebalanceStatus"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Worker Management -->
-    <div class="card mb-3">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-          <h2 class="h5 mb-0 section-title">Workers</h2>
-          <div class="d-flex align-items-center gap-3">
-            <div class="d-flex align-items-center gap-2">
-              <label for="filterStrategy" class="muted small">Strategy</label>
-              <select id="filterStrategy" class="form-select form-select-sm" style="width: 160px;">
-                <option value="">All</option>
-                <option value="MeanReversion">Mean Reversion</option>
-                <option value="Breakout">Breakout</option>
-                <option value="TrendFollow">Trend Follow</option>
-              </select>
-            </div>
-            <div class="d-flex align-items-center gap-2">
-              <label for="filterSymbol" class="muted small">Symbol</label>
-              <select id="filterSymbol" class="form-select form-select-sm" style="width: 160px;">
-                <option value="">All</option>
-                <option>BTC_USDT</option>
-                <option>ETH_USDT</option>
-                <option>SOL_USDT</option>
-              </select>
-            </div>
-          </div>
-        </div>
-        <div id="workersTable"></div>
-      </div>
-    </div>
-
-    <!-- Collapsible Positions -->
-    <div class="card mb-3">
-      <div class="card-body">
-        <div class="collapse-toggle d-flex justify-content-between align-items-center" data-bs-toggle="collapse" data-bs-target="#positionsCollapse">
-          <h2 class="h6 mb-0 section-title">Open Positions</h2>
-          <div class="d-flex align-items-center gap-2">
-            <span class="mono small muted" id="positionsCount">-</span>
-            <svg width="16" height="16" fill="currentColor" class="bi bi-chevron-down" viewBox="0 0 16 16">
-              <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
-            </svg>
-          </div>
-        </div>
-        <div class="collapse" id="positionsCollapse">
-          <hr class="my-2" style="border-color: var(--panel-border);">
-          <div id="positions"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Collapsible Recent Trades -->
-    <div class="card mb-3">
-      <div class="card-body">
-        <div class="collapse-toggle d-flex justify-content-between align-items-center" data-bs-toggle="collapse" data-bs-target="#tradesCollapse">
-          <h2 class="h6 mb-0 section-title">Recent Trades</h2>
-          <div class="d-flex align-items-center gap-2">
-            <span class="mono small muted" id="tradesCount">-</span>
-            <svg width="16" height="16" fill="currentColor" class="bi bi-chevron-down" viewBox="0 0 16 16">
-              <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
-            </svg>
-          </div>
-        </div>
-        <div class="collapse" id="tradesCollapse">
-          <hr class="my-2" style="border-color: var(--panel-border);">
-          <div id="roundtrips"></div>
-        </div>
-      </div>
-    </div>
-
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- Automatic Strategy Assignment -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h2 class="h5 mb-3 section-title">Automatic Strategy Assignment</h2>
+      <div class="d-flex align-items-center gap-3 flex-wrap">
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="autoRebalanceToggle" />
+          <label class="form-check-label" for="autoRebalanceToggle">
+            Enable Auto-Assignment (Moves underperforming workers to best strategy every 60 bars)
+          </label>
+        </div>
+        <button class="btn btn-sm btn-primary" id="manualRebalanceBtn">Trigger Now</button>
+        <div class="ms-auto muted small" id="rebalanceStatus"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Workers + filters -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h5 mb-0 section-title">Workers</h2>
+        <div class="d-flex align-items-center gap-3">
+          <div class="d-flex align-items-center gap-2">
+            <label for="filterStrategy" class="muted small">Strategy</label>
+            <select id="filterStrategy" class="form-select form-select-sm" style="width: 160px;">
+              <option value="">All</option>
+              <option value="MeanReversion">Mean Reversion</option>
+              <option value="Breakout">Breakout</option>
+              <option value="TrendFollow">Trend Follow</option>
+            </select>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <label for="filterSymbol" class="muted small">Symbol</label>
+            <select id="filterSymbol" class="form-select form-select-sm" style="width: 160px;">
+              <option value="">All</option>
+              <option>BTC_USDT</option>
+              <option>ETH_USDT</option>
+              <option>SOL_USDT</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div id="workersTable"></div>
+    </div>
+  </div>
+
+  <!-- Collapsible Positions -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="collapse-toggle d-flex justify-content-between align-items-center" data-bs-toggle="collapse" data-bs-target="#positionsCollapse">
+        <h2 class="h6 mb-0 section-title">Open Positions</h2>
+        <div class="d-flex align-items-center gap-2">
+          <span class="mono small muted" id="positionsCount">-</span>
+          <svg width="16" height="16" fill="currentColor" class="bi bi-chevron-down" viewBox="0 0 16 16">
+            <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+          </svg>
+        </div>
+      </div>
+      <div class="collapse" id="positionsCollapse">
+        <hr class="my-2" style="border-color: var(--panel-border);">
+        <div id="positions"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Collapsible Recent Trades -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="collapse-toggle d-flex justify-content-between align-items-center" data-bs-toggle="collapse" data-bs-target="#tradesCollapse">
+        <h2 class="h6 mb-0 section-title">Recent Trades</h2>
+        <div class="d-flex align-items-center gap-2">
+          <span class="mono small muted" id="tradesCount">-</span>
+          <svg width="16" height="16" fill="currentColor" class="bi bi-chevron-down" viewBox="0 0 16 16">
+            <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+          </svg>
+        </div>
+      </div>
+      <div class="collapse" id="tradesCollapse">
+        <hr class="my-2" style="border-color: var(--panel-border);">
+        <div id="roundtrips"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Strategy overview cards -->
+  <div id="strategyOverview" class="mb-3"></div>
+
+{% endblock %}
+
+{% block scripts %}
   <script>
     const fmt2 = (x) => Number(x).toFixed(2);
     const pct = (x) => (Number(x) * 100).toFixed(2) + "%";
@@ -185,7 +161,7 @@
     const money = (x) => "$" + Number(x).toFixed(2);
 
     let currentPrices = {}; // { "BTC_USDT": {price, ts}, ... }
-    let allWorkers = []; // Flattened list of all workers with their strategy names
+    let allWorkers = [];    // Flattened list of all workers with their strategy names
     let openPositions = [];
 
     function badge(val) {
@@ -202,10 +178,6 @@
       const totalTrades = snap.strategies.reduce((a, s) =>
         a + s.bots.reduce((bacc, b) => bacc + Number(b.trades), 0), 0
       );
-      const activeWorkers = allWorkers.filter(w => {
-        const hasPosition = openPositions.some(p => p.bot === w.name);
-        return hasPosition;
-      }).length;
 
       document.getElementById("summary").innerHTML = `
         <div class="card">
@@ -265,12 +237,10 @@
       `).join("");
 
       document.getElementById("strategyOverview").innerHTML = `
-        <div class="card">
-          <div class="card-body">
-            <h2 class="h5 mb-3 section-title">Strategy Overview</h2>
-            <div class="row g-3">${cards}</div>
-          </div>
-        </div>
+        <div class="card"><div class="card-body">
+          <h2 class="h5 mb-3 section-title">Strategy Overview</h2>
+          <div class="row g-3">${cards}</div>
+        </div></div>
       `;
     }
 
@@ -353,8 +323,7 @@
         });
 
         if (res.ok) {
-          // Refresh data
-          await load();
+          await load(); // refresh
         } else {
           const error = await res.json();
           alert(`Failed to change strategy: ${error.error || 'Unknown error'}`);
@@ -407,7 +376,7 @@
     }
 
     async function loadPositions() {
-      const res = await fetch(`/positions.json`, { cache: "no-store" });
+      const res = await fetch('/positions.json', { cache: "no-store" });
       const data = await res.json();
       openPositions = data.items || [];
       renderPositions(openPositions);
@@ -444,20 +413,20 @@
     }
 
     async function loadRoundtrips() {
-      const res = await fetch(`/roundtrips.json?limit=20`, { cache: "no-store" });
+      const res = await fetch('/roundtrips.json?limit=20', { cache: "no-store" });
       const data = await res.json();
       renderRoundtrips(data.items || []);
     }
 
     async function loadPrices() {
-      const res = await fetch("/prices.json", { cache: "no-store" });
+      const res = await fetch('/prices.json', { cache: "no-store" });
       const data = await res.json();
       currentPrices = {};
       (data.items || []).forEach(p => { currentPrices[p.symbol] = { price: p.price, ts: p.ts }; });
     }
 
     async function load() {
-      const res = await fetch("/portfolio.json", { cache: "no-store" });
+      const res = await fetch('/portfolio.json', { cache: "no-store" });
       const snap = await res.json();
 
       // Flatten workers with strategy info
@@ -471,7 +440,7 @@
             equity: b.equity,
             score: b.score,
             trades: b.trades_db ?? b.trades,
-            allocation: 0, // Will be set from bot data
+            allocation: 0, // if/when provided
             strategyName: s.name,
             strategyType: b.name.startsWith('mr_') ? 'MeanReversion'
                         : b.name.startsWith('bo_') ? 'Breakout'
@@ -485,7 +454,7 @@
       renderWorkers();
     }
 
-    // Auto-rebalance controls
+    // Auto-assign controls
     async function loadAutoRebalanceStatus() {
       try {
         const res = await fetch('/api/auto-rebalance');
@@ -496,7 +465,7 @@
       }
     }
 
-    document.getElementById('autoRebalanceToggle').addEventListener('change', async (e) => {
+    document.getElementById('autoRebalanceToggle')?.addEventListener('change', async (e) => {
       try {
         const enabled = e.target.checked;
         const res = await fetch('/api/auto-rebalance', {
@@ -504,38 +473,26 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled })
         });
-
         const data = await res.json();
         document.getElementById('rebalanceStatus').textContent = data.message;
-        setTimeout(() => {
-          document.getElementById('rebalanceStatus').textContent = '';
-        }, 3000);
+        setTimeout(() => { document.getElementById('rebalanceStatus').textContent = ''; }, 3000);
       } catch (err) {
         console.error('Error toggling auto-rebalance:', err);
         alert('Error toggling auto-rebalance. See console for details.');
       }
     });
 
-    document.getElementById('manualRebalanceBtn').addEventListener('click', async () => {
+    document.getElementById('manualRebalanceBtn')?.addEventListener('click', async () => {
       const btn = document.getElementById('manualRebalanceBtn');
       btn.disabled = true;
       btn.textContent = 'Processing...';
-
       try {
-        const res = await fetch('/api/auto-assign-strategies', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-
+        const res = await fetch('/api/auto-assign-strategies', { method: 'POST', headers: { 'Content-Type': 'application/json' }});
         const data = await res.json();
         if (data.success) {
           document.getElementById('rebalanceStatus').textContent =
             `Reassigned ${data.count} workers to ${data.best_strategy}`;
-          setTimeout(() => {
-            document.getElementById('rebalanceStatus').textContent = '';
-          }, 5000);
-
-          // Reload data
+          setTimeout(() => { document.getElementById('rebalanceStatus').textContent = ''; }, 5000);
           await load();
         } else {
           alert('Auto-assignment failed: ' + (data.error || 'Unknown error'));
@@ -558,6 +515,7 @@
     const intervalSel = document.getElementById("interval");
     const autoChk = document.getElementById("autoRefresh");
     const refreshBtn = document.getElementById("refreshBtn");
+    const tfTag = document.getElementById("tfTag");
     tfTag.textContent = "TF: 1m";
 
     function startLoop() {
@@ -575,18 +533,9 @@
       if (timer) { clearInterval(timer); timer = null; }
     }
 
-    autoChk.addEventListener("change", () => {
-      autoChk.checked ? startLoop() : stopLoop();
-    });
-    intervalSel.addEventListener("change", () => {
-      if (autoChk.checked) startLoop();
-    });
-    refreshBtn.addEventListener("click", () => {
-      load();
-      loadPrices();
-      loadPositions();
-      loadRoundtrips();
-    });
+    autoChk.addEventListener("change", () => { autoChk.checked ? startLoop() : stopLoop(); });
+    intervalSel.addEventListener("change", () => { if (autoChk.checked) startLoop(); });
+    refreshBtn.addEventListener("click", () => { load(); loadPrices(); loadPositions(); loadRoundtrips(); });
 
     // Initial load
     Promise.all([
@@ -599,5 +548,4 @@
       if (autoChk.checked) startLoop();
     });
   </script>
-</body>
-</html>
+{% endblock %}

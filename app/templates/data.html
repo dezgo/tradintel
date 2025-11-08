@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+
+{% block title %}TradingBot — Data Management{% endblock %}
+{% block page_title %}TradingBot — Data Management{% endblock %}
+
+{% set active_page = 'data' %}
+
+{% block content %}
+  <div class="row g-3">
+    <!-- Left: Backfill -->
+    <div class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <h2 class="h5 section-title mb-3">Backfill Historical Data</h2>
+
+          <p class="text-muted small mb-3">
+            Fetch daily OHLCV data from CoinGecko and cache it locally.
+            This enables faster backtests and provides data for symbols/timeframes
+            not available via Gate.io API.
+          </p>
+
+          <form id="backfillForm">
+            <div class="mb-3">
+              <label for="provider" class="form-label">Data Provider</label>
+              <select class="form-select" id="provider" required>
+                <option value="gate">Gate.io (1000 bars, all timeframes)</option>
+                <option value="coingecko">CoinGecko (90 days, daily only)</option>
+              </select>
+              <div class="form-text small" id="providerHelp">
+                Gate.io: Free, 1000 bars max, supports all timeframes
+              </div>
+            </div>
+
+            <div class="mb-3" id="timeframeSection">
+              <label for="timeframe" class="form-label">Timeframe</label>
+              <select class="form-select" id="timeframe">
+                <option value="1m">1 minute (~16 hours)</option>
+                <option value="5m">5 minutes (~3.5 days)</option>
+                <option value="15m">15 minutes (~10 days)</option>
+                <option value="30m">30 minutes (~20 days)</option>
+                <option value="1h">1 hour (~41 days)</option>
+                <option value="4h">4 hours (~160 days)</option>
+                <option value="1d" selected>1 day (~2.7 years)</option>
+              </select>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Symbols</label>
+              <div id="symbolChecks" class="d-flex flex-column gap-2">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="BTC_USDT" id="sym_btc" checked>
+                  <label class="form-check-label" for="sym_btc">BTC_USDT</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="ETH_USDT" id="sym_eth" checked>
+                  <label class="form-check-label" for="sym_eth">ETH_USDT</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="SOL_USDT" id="sym_sol" checked>
+                  <label class="form-check-label" for="sym_sol">SOL_USDT</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="BNB_USDT" id="sym_bnb">
+                  <label class="form-check-label" for="sym_bnb">BNB_USDT</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="XRP_USDT" id="sym_xrp">
+                  <label class="form-check-label" for="sym_xrp">XRP_USDT</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="ADA_USDT" id="sym_ada">
+                  <label class="form-check-label" for="sym_ada">ADA_USDT</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="AVAX_USDT" id="sym_avax">
+                  <label class="form-check-label" for="sym_avax">AVAX_USDT</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="DOGE_USDT" id="sym_doge">
+                  <label class="form-check-label" for="sym_doge">DOGE_USDT</label>
+                </div>
+              </div>
+            </div>
+
+            <div class="mb-3" id="barsSection">
+              <label for="bars" class="form-label">Number of Bars</label>
+              <input type="number" class="form-control" id="bars" value="1000" min="1" max="1000" required>
+              <div class="form-text small" id="barsHelp">
+                Gate.io: max 1000 bars per request
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100" id="backfillBtn">
+              Fetch Data
+            </button>
+          </form>
+
+          <div id="backfillResults" class="mt-3"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Coverage -->
+    <div class="col-lg-8">
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h2 class="h5 section-title mb-0">Cached Data</h2>
+            <button class="btn btn-sm btn-outline-light" onclick="loadCoverage()">Refresh</button>
+          </div>
+
+          <div id="coverageTable" class="table-responsive">
+            <p class="text-muted small">Loading...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const fmtDate = (ts) => new Date(ts * 1000).toLocaleDateString();
+    const fmtDateTime = (ts) => new Date(ts * 1000).toLocaleString();
+
+    // Provider selection handler
+    document.getElementById('provider').addEventListener('change', (e) => {
+      const provider = e.target.value;
+      const timeframeSection = document.getElementById('timeframeSection');
+      const barsSection = document.getElementById('barsSection');
+      const barsInput = document.getElementById('bars');
+      const providerHelp = document.getElementById('providerHelp');
+      const barsHelp = document.getElementById('barsHelp');
+
+      if (provider === 'gate') {
+        timeframeSection.style.display = 'block';
+        barsSection.querySelector('label').textContent = 'Number of Bars';
+        barsInput.max = '1000';
+        barsInput.value = '1000';
+        providerHelp.textContent = 'Gate.io: Free, 1000 bars max, supports all timeframes';
+        barsHelp.textContent = 'Gate.io: max 1000 bars per request';
+      } else {
+        timeframeSection.style.display = 'none';
+        barsSection.querySelector('label').textContent = 'Days of History';
+        barsInput.max = '90';
+        barsInput.value = '90';
+        providerHelp.textContent = 'CoinGecko: Free tier limited to 90 days of daily OHLC data';
+        barsHelp.textContent = 'CoinGecko free tier: max 90 days of OHLC data';
+      }
+    });
+
+    async function loadCoverage() {
+      const res = await fetch('/data/coverage', { cache: 'no-store' });
+      const data = await res.json();
+      renderCoverage(data.items || []);
+    }
+
+    function renderCoverage(items) {
+      if (items.length === 0) {
+        document.getElementById('coverageTable').innerHTML = `
+          <p class="text-muted small">No cached data yet. Use the backfill form to fetch historical data.</p>
+        `;
+        return;
+      }
+
+      // Group by symbol
+      const bySymbol = {};
+      items.forEach(item => {
+        if (!bySymbol[item.symbol]) {
+          bySymbol[item.symbol] = [];
+        }
+        bySymbol[item.symbol].push(item);
+      });
+
+      let html = '<table class="table table-sm table-dark align-middle">';
+      html += '<thead><tr><th>Symbol</th><th>Timeframe</th><th>Bars</th><th>Source</th><th>Start</th><th>End</th></tr></thead>';
+      html += '<tbody>';
+
+      for (const [symbol, timeframes] of Object.entries(bySymbol)) {
+        timeframes.sort((a, b) => {
+          const order = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'];
+          return order.indexOf(a.timeframe) - order.indexOf(b.timeframe);
+        });
+
+        timeframes.forEach((tf, idx) => {
+          html += `<tr>`;
+          if (idx === 0) {
+            html += `<td rowspan="${timeframes.length}" class="mono align-middle">${symbol}</td>`;
+          }
+          const sourceLabel = tf.source === 'gate' ? 'Gate.io' : 'CoinGecko';
+          const sourceBadge = tf.source === 'gate'
+            ? '<span class="badge bg-primary">Gate</span>'
+            : '<span class="badge bg-info">CoinGecko</span>';
+          html += `
+            <td class="mono">${tf.timeframe}</td>
+            <td class="mono">${tf.count}</td>
+            <td>${sourceBadge}</td>
+            <td class="mono small">${fmtDate(tf.start_ts)}</td>
+            <td class="mono small">${fmtDate(tf.end_ts)}</td>
+          </tr>`;
+        });
+      }
+
+      html += '</tbody></table>';
+      document.getElementById('coverageTable').innerHTML = html;
+    }
+
+    // Backfill form submission
+    document.getElementById('backfillForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const btn = document.getElementById('backfillBtn');
+      const resultsDiv = document.getElementById('backfillResults');
+
+      // Get selected symbols
+      const checkboxes = document.querySelectorAll('#symbolChecks input[type="checkbox"]:checked');
+      const symbols = Array.from(checkboxes).map(cb => cb.value);
+
+      if (symbols.length === 0) {
+        resultsDiv.innerHTML = '<div class="alert alert-warning small">Please select at least one symbol</div>';
+        return;
+      }
+
+      const provider = document.getElementById('provider').value;
+      const timeframe = document.getElementById('timeframe').value;
+      const bars = parseInt(document.getElementById('bars').value);
+
+      // Show loading state
+      btn.disabled = true;
+      btn.textContent = 'Fetching...';
+      const providerName = provider === 'gate' ? 'Gate.io' : 'CoinGecko';
+      resultsDiv.innerHTML = `<div class="text-muted small">Fetching data from ${providerName}${provider === 'coingecko' ? ' (this may take a minute)' : ''}...</div>`;
+
+      try {
+        const res = await fetch('/data/backfill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbols, provider, timeframe, bars })
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+          resultsDiv.innerHTML = `<div class="alert alert-danger small">${data.error}</div>`;
+        } else {
+          // Show results
+          let html = '<div class="mt-2">';
+          for (const [symbol, status] of Object.entries(data.results)) {
+            const isSuccess = status.startsWith('✓');
+            const cls = isSuccess ? 'status-ok' : 'status-error';
+            html += `<div class="small ${cls} mono">${status} — ${symbol}</div>`;
+          }
+          html += '</div>';
+          resultsDiv.innerHTML = html;
+
+          // Refresh coverage table
+          setTimeout(loadCoverage, 500);
+        }
+      } catch (e) {
+        resultsDiv.innerHTML = `<div class="alert alert-danger small">Error: ${e.message}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Fetch Data';
+      }
+    });
+
+    // Initial load
+    loadCoverage();
+  </script>
+{% endblock %}
