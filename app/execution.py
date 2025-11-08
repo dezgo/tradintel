@@ -134,11 +134,14 @@ class BinanceTestnetExec(ExecutionClient):
             'enableRateLimit': True,
             'options': {
                 'defaultType': 'spot',
-                'test': True,  # Enable testnet mode
             }
         })
-        # Override with testnet URLs
-        self.exchange.urls['api'] = self.exchange.urls['test']
+
+        # Override with testnet URLs - Binance spot testnet
+        self.exchange.urls['api'] = {
+            'public': 'https://testnet.binance.vision/api',
+            'private': 'https://testnet.binance.vision/api',
+        }
 
     def paper_order(
         self, symbol: str, side: str, qty: float, price_hint: Optional[float] = None
