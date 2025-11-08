@@ -137,11 +137,20 @@ class BinanceTestnetExec(ExecutionClient):
             }
         })
 
-        # Override with testnet URLs - Binance spot testnet
+        # Override ALL URLs to point to testnet - Binance spot testnet
+        # This prevents CCXT from trying to use SAPI endpoints
+        testnet_base = 'https://testnet.binance.vision'
         self.exchange.urls['api'] = {
-            'public': 'https://testnet.binance.vision/api',
-            'private': 'https://testnet.binance.vision/api',
+            'public': f'{testnet_base}/api',
+            'private': f'{testnet_base}/api',
+            'v3': f'{testnet_base}/api/v3',
+            'v1': f'{testnet_base}/api/v1',
         }
+        # Remove SAPI, FAPI, etc. to force use of regular API
+        self.exchange.urls.pop('sapi', None)
+        self.exchange.urls.pop('fapi', None)
+        self.exchange.urls.pop('dapi', None)
+        self.exchange.urls.pop('vapi', None)
 
     def paper_order(
         self, symbol: str, side: str, qty: float, price_hint: Optional[float] = None

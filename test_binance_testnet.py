@@ -48,48 +48,50 @@ def test_connection():
         print(f"❌ Failed to initialize client: {e}")
         return False
 
-    # Test account access using API endpoint directly
-    try:
-        print("\n→ Testing account access...")
-        # Use account endpoint instead of fetch_balance (which uses SAPI)
-        account_info = client.exchange.fetch_my_trades('BTC/USDT', limit=1)
-        print("✓ Successfully authenticated with Binance testnet!")
-
-        # Try to get balance using the v3 API endpoint
-        try:
-            # This uses the /api/v3/account endpoint which is available on testnet
-            response = client.exchange.private_get_account()
-            balances = response.get('balances', [])
-
-            print("\n📊 Account Balances (Testnet):")
-            print("-" * 60)
-            has_funds = False
-            for bal in balances:
-                free = float(bal.get('free', 0))
-                locked = float(bal.get('locked', 0))
-                if free > 0 or locked > 0:
-                    has_funds = True
-                    total = free + locked
-                    print(f"  {bal['asset']:8s}: {total:,.8f} (free: {free:,.8f}, locked: {locked:,.8f})")
-
-            if not has_funds:
-                print("  (No funds - visit https://testnet.binance.vision/ to get testnet funds)")
-        except Exception as bal_error:
-            print(f"  Could not fetch balances: {bal_error}")
-            print("  This is OK - authentication still works!")
-
-    except Exception as e:
-        print(f"❌ Failed to authenticate: {e}")
-        print("\nThis might be OK if you have no trade history yet.")
-        print("Let's continue with other tests...")
-
-    # Test market data access
+    # Test market data access (public endpoint - doesn't need auth)
     try:
         print("\n→ Testing market data access...")
         ticker = client.exchange.fetch_ticker('BTC/USDT')
         print(f"✓ BTC/USDT Price: ${ticker['last']:,.2f}")
     except Exception as e:
         print(f"❌ Failed to fetch market data: {e}")
+        print("\nTrying alternative method...")
+        try:
+            # Use direct API call
+            response = client.exchange.public_get_ticker_price({'symbol': 'BTCUSDT'})
+            price = float(response['price'])
+            print(f"✓ BTC/USDT Price: ${price:,.2f}")
+        except Exception as e2:
+            print(f"❌ Alternative method also failed: {e2}")
+            return False
+
+    # Test account access using direct API endpoint
+    try:
+        print("\n→ Testing account access...")
+        # This uses the /api/v3/account endpoint which is available on testnet
+        response = client.exchange.private_get_account()
+        balances = response.get('balances', [])
+
+        print("✓ Successfully authenticated with Binance testnet!")
+
+        print("\n📊 Account Balances (Testnet):")
+        print("-" * 60)
+        has_funds = False
+        for bal in balances:
+            free = float(bal.get('free', 0))
+            locked = float(bal.get('locked', 0))
+            if free > 0 or locked > 0:
+                has_funds = True
+                total = free + locked
+                print(f"  {bal['asset']:8s}: {total:,.8f} (free: {free:,.8f}, locked: {locked:,.8f})")
+
+        if not has_funds:
+            print("  (No funds - visit https://testnet.binance.vision/ to get testnet funds)")
+
+    except Exception as e:
+        print(f"❌ Failed to access account: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
     print("\n" + "=" * 60)
