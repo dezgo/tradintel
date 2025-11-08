@@ -266,21 +266,34 @@ def create_app() -> Flask:
         from app.storage import store
 
         # Get all unique symbol/timeframe combinations from cache
+        # Note: Multiple sources possible, so we pick the one with most bars
         with store._lock:
             cur = store._conn.execute(
-                "SELECT symbol, timeframe, MIN(ts), MAX(ts), COUNT(*) FROM bars GROUP BY symbol, timeframe"
+                """
+                SELECT symbol, timeframe, source, MIN(ts), MAX(ts), COUNT(*)
+                FROM bars
+                GROUP BY symbol, timeframe, source
+                """
             )
             rows = cur.fetchall()
+
+        # Group by symbol/timeframe and pick source with most bars
+        by_key = {}
+        for r in rows:
+            key = (r[0], r[1])
+            if key not in by_key or r[5] > by_key[key][5]:
+                by_key[key] = r
 
         items = [
             {
                 "symbol": r[0],
                 "timeframe": r[1],
-                "start_ts": int(r[2]),
-                "end_ts": int(r[3]),
-                "count": int(r[4]),
+                "source": r[2],
+                "start_ts": int(r[3]),
+                "end_ts": int(r[4]),
+                "count": int(r[5]),
             }
-            for r in rows
+            for r in by_key.values()
         ]
 
         return jsonify({"items": items})
@@ -288,36 +301,47 @@ def create_app() -> Flask:
     @app.post("/data/backfill")
     def backfill_data():
         """
-        Backfill daily data from CoinGecko.
+        Backfill historical data from Gate.io or CoinGecko.
 
         Request body:
         {
             "symbols": ["BTC_USDT", "ETH_USDT", "SOL_USDT"],
-            "days": 365  // optional, defaults to 365
+            "provider": "gate" | "coingecko",  // defaults to "gate"
+            "timeframe": "1d",  // only used for Gate.io
+            "bars": 1000  // number of bars to fetch
         }
 
         Returns:
         {
             "results": {
-                "BTC_USDT": "✓ Cached 365 daily bars",
-                "ETH_USDT": "✓ Cached 365 daily bars",
+                "BTC_USDT": "✓ Cached 1000 bars",
+                "ETH_USDT": "✓ Cached 1000 bars",
                 ...
             }
         }
         """
-        from app.data_cache import backfill_daily_data
+        from app.data_cache import backfill_daily_data, backfill_gate_data
 
         body = request.get_json()
         if not body or "symbols" not in body:
             return jsonify({"error": "Request body must include 'symbols' array"}), 400
 
         symbols = body.get("symbols", [])
-        days = body.get("days", 365)
+        provider = body.get("provider", "gate")
+        timeframe = body.get("timeframe", "1d")
+        bars = body.get("bars", 1000)
 
         if not isinstance(symbols, list) or not symbols:
             return jsonify({"error": "'symbols' must be a non-empty array"}), 400
 
-        results = backfill_daily_data(symbols, days)
+        if provider == "coingecko":
+            # CoinGecko: daily data only, max 90 days
+            results = backfill_daily_data(symbols, bars)
+        elif provider == "gate":
+            # Gate.io: any timeframe, max 1000 bars
+            results = backfill_gate_data(symbols, timeframe, bars)
+        else:
+            return jsonify({"error": f"Unknown provider '{provider}'. Use 'gate' or 'coingecko'"}), 400
 
         return jsonify({"results": results})
 

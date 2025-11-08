@@ -174,6 +174,60 @@ class CoinGeckoAdapter(DataProvider):
         return out
 
 
+def backfill_gate_data(symbols: list[str], timeframe: str = "1d", bars: int = 1000) -> dict[str, str]:
+    """
+    Backfill data from Gate.io API.
+
+    - Supports all timeframes: 1m, 5m, 15m, 30m, 1h, 4h, 1d
+    - Max 1000 bars per request
+    - Checks existing cache first and skips if we already have enough data
+    - No rate limiting needed (public API is generous)
+    - Returns dict mapping symbol -> status message
+    """
+    from app.data import GateAdapter
+
+    gate = GateAdapter()
+    results = {}
+
+    # Cap at 1000 bars (Gate.io limit)
+    bars = min(bars, 1000)
+
+    for symbol in symbols:
+        try:
+            # Check if we already have enough cached data
+            coverage = store.get_bar_coverage(symbol, timeframe)
+            if coverage and coverage['count'] >= bars:
+                results[symbol] = f"↷ Already cached ({coverage['count']} bars)"
+                continue
+
+            # If we have some data, indicate we're updating
+            if coverage:
+                results[symbol] = f"⟳ Updating cache ({coverage['count']} → {bars} bars)"
+
+            # Fetch bars from Gate.io
+            bar_list = gate.history(symbol, timeframe, limit=bars)
+
+            if bar_list:
+                # Store in cache (INSERT OR IGNORE prevents duplicates)
+                bar_tuples = [
+                    (b.ts, b.open, b.high, b.low, b.close, b.volume)
+                    for b in bar_list
+                ]
+                store.store_bars(symbol, timeframe, bar_tuples, source="gate")
+
+                # Get final count
+                final_coverage = store.get_bar_coverage(symbol, timeframe)
+                final_count = final_coverage['count'] if final_coverage else len(bar_list)
+                results[symbol] = f"✓ Cached {final_count} bars ({timeframe})"
+            else:
+                results[symbol] = "✗ No data returned"
+
+        except Exception as e:
+            results[symbol] = f"✗ Error: {str(e)}"
+
+    return results
+
+
 def backfill_daily_data(symbols: list[str], days: int = 90) -> dict[str, str]:
     """
     Backfill daily data for multiple symbols from CoinGecko.
