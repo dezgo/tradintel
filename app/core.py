@@ -39,4 +39,26 @@ class ExecutionClient(Protocol):
     def paper_order(
         self, symbol: str, side: str, qty: float, price_hint: Optional[float] = None
     ) -> Dict:
+        """Legacy market order method for backwards compatibility."""
+        pass
+
+    def limit_order(
+        self,
+        symbol: str,
+        side: str,
+        qty: float,
+        limit_price: float,
+        timeout: float = 60.0
+    ) -> Dict:
+        """
+        Place a limit order to get maker fees (0% or rebates).
+
+        Returns dict with:
+        - status: 'filled', 'partial', 'cancelled', 'timeout'
+        - filled_qty: actual quantity filled
+        - avg_price: average fill price
+        - is_maker: True if maker (better fees), False if taker
+        - fee: fee amount in quote currency
+        - fee_rate: fee percentage applied
+        """
         pass

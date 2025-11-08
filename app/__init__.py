@@ -237,6 +237,12 @@ def create_app() -> Flask:
     def portfolio():
         return jsonify(_pm.snapshot())
 
+    @app.get("/fees.json")
+    def fee_statistics():
+        """Return fee statistics for the portfolio."""
+        stats = store.fee_statistics()
+        return jsonify(stats)
+
     @app.get("/prices.json")
     def prices():
         # get one shared data provider (from any bot)

@@ -101,6 +101,39 @@
     </div>
   </div>
 
+  <!-- Fee Statistics -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h2 class="h6 mb-3">Trading Fees</h2>
+      <div class="row g-2">
+        <div class="col-6 col-md-3">
+          <div class="text-center p-2" style="background: var(--page-bg); border-radius: 6px;">
+            <div class="muted small mb-1">Total Fees</div>
+            <div class="mono" style="font-size: 1.25rem; font-weight: 600; color: var(--red);" id="feesTotal">$0</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="text-center p-2" style="background: var(--page-bg); border-radius: 6px;">
+            <div class="muted small mb-1">Maker Ratio</div>
+            <div class="mono" style="font-size: 1.25rem; font-weight: 600; color: var(--green);" id="feesMakerRatio">0%</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="text-center p-2" style="background: var(--page-bg); border-radius: 6px;">
+            <div class="muted small mb-1">Fee Rate</div>
+            <div class="mono" style="font-size: 1.25rem; font-weight: 600;" id="feesRate">0%</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="text-center p-2" style="background: var(--page-bg); border-radius: 6px;">
+            <div class="muted small mb-1">Volume</div>
+            <div class="mono" style="font-size: 1.25rem; font-weight: 600; color: var(--text);" id="feesVolume">$0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Recent Activity -->
   <div class="row g-2 g-md-3">
     <div class="col-12 col-md-6">
@@ -499,11 +532,26 @@
     const tfTag = document.getElementById("tfTag");
     tfTag.textContent = "TF: 1m";
 
+    async function loadFees() {
+      try {
+        const res = await fetch('/fees.json', { cache: "no-store" });
+        const data = await res.json();
+
+        document.getElementById("feesTotal").textContent = money(data.total_fees);
+        document.getElementById("feesMakerRatio").textContent = pct(data.maker_ratio);
+        document.getElementById("feesRate").textContent = data.fee_percentage.toFixed(3) + '%';
+        document.getElementById("feesVolume").textContent = money(data.total_volume);
+      } catch (err) {
+        console.error('Error loading fees:', err);
+      }
+    }
+
     function refreshAll() {
       load();
       loadPrices();
       loadPositions();
       loadRoundtrips();
+      loadFees();
     }
 
     function startLoop() {
@@ -526,7 +574,8 @@
       loadPrices(),
       loadPositions(),
       loadRoundtrips(),
-      loadAutoRebalanceStatus()
+      loadAutoRebalanceStatus(),
+      loadFees()
     ]).then(() => {
       if (autoChk.checked) startLoop();
     });

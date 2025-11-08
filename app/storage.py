@@ -200,15 +200,37 @@ class Storage:
             )
             self._conn.commit()
 
+        # Migrate to version 7: add fee tracking to trades table
+        if ver < 7:
+            cur.executescript(
+                """
+                BEGIN;
+                ALTER TABLE trades ADD COLUMN fee REAL DEFAULT 0.0;
+                ALTER TABLE trades ADD COLUMN is_maker INTEGER DEFAULT 0;
+                CREATE INDEX IF NOT EXISTS idx_trades_bot ON trades(bot_name, ts DESC);
+                PRAGMA user_version = 7;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
     # ── Trades ────────────────────────────────────────────────────────────────
     def record_trade(
-        self, bot_name: str, symbol: str, side: str, qty: float, price: float, ts: Optional[int] = None
+        self,
+        bot_name: str,
+        symbol: str,
+        side: str,
+        qty: float,
+        price: float,
+        ts: Optional[int] = None,
+        fee: float = 0.0,
+        is_maker: bool = False
     ) -> None:
         ts = int(ts or time.time())
         with self._lock:
             self._conn.execute(
-                "INSERT INTO trades(ts, bot_name, symbol, side, qty, price) VALUES(?,?,?,?,?,?)",
-                (ts, bot_name, symbol, side, float(qty), float(price)),
+                "INSERT INTO trades(ts, bot_name, symbol, side, qty, price, fee, is_maker) VALUES(?,?,?,?,?,?,?,?)",
+                (ts, bot_name, symbol, side, float(qty), float(price), float(fee), int(is_maker)),
             )
             self._conn.commit()
 
@@ -328,7 +350,7 @@ class Storage:
         Return recent trades (most recent first) with optional filters.
         """
         sql = [
-            "SELECT t.id, t.ts, t.bot_name, b.manager, t.symbol, t.side, t.qty, t.price",
+            "SELECT t.id, t.ts, t.bot_name, b.manager, t.symbol, t.side, t.qty, t.price, t.fee, t.is_maker",
             "FROM trades t LEFT JOIN bots b ON b.name = t.bot_name",
             "WHERE 1=1",
         ]
@@ -365,9 +387,78 @@ class Storage:
                 "side": r[5],
                 "qty": float(r[6]),
                 "price": float(r[7]),
+                "fee": float(r[8] or 0),
+                "is_maker": bool(r[9]),
             }
             for r in rows
         ]
+
+    def fee_statistics(
+            self,
+            *,
+            bot_name: str | None = None,
+            manager: str | None = None,
+    ) -> dict:
+        """
+        Return fee statistics including total fees, maker/taker breakdown.
+        """
+        sql_base = [
+            "SELECT",
+            "  COUNT(*) as total_trades,",
+            "  SUM(t.fee) as total_fees,",
+            "  SUM(CASE WHEN t.is_maker = 1 THEN t.fee ELSE 0 END) as maker_fees,",
+            "  SUM(CASE WHEN t.is_maker = 0 THEN t.fee ELSE 0 END) as taker_fees,",
+            "  SUM(CASE WHEN t.is_maker = 1 THEN 1 ELSE 0 END) as maker_count,",
+            "  SUM(CASE WHEN t.is_maker = 0 THEN 1 ELSE 0 END) as taker_count,",
+            "  SUM(t.qty * t.price) as total_volume",
+            "FROM trades t LEFT JOIN bots b ON b.name = t.bot_name",
+            "WHERE 1=1",
+        ]
+        args: list = []
+
+        if bot_name:
+            sql_base.append("AND t.bot_name = ?")
+            args.append(bot_name)
+        if manager:
+            sql_base.append("AND b.manager = ?")
+            args.append(manager)
+
+        with self._lock:
+            cur = self._conn.execute(" ".join(sql_base), args)
+            row = cur.fetchone()
+
+        if not row or row[0] == 0:
+            return {
+                "total_trades": 0,
+                "total_fees": 0.0,
+                "maker_fees": 0.0,
+                "taker_fees": 0.0,
+                "maker_count": 0,
+                "taker_count": 0,
+                "maker_ratio": 0.0,
+                "total_volume": 0.0,
+                "fee_percentage": 0.0,
+            }
+
+        total_trades = int(row[0])
+        total_fees = float(row[1] or 0)
+        maker_fees = float(row[2] or 0)
+        taker_fees = float(row[3] or 0)
+        maker_count = int(row[4] or 0)
+        taker_count = int(row[5] or 0)
+        total_volume = float(row[6] or 0)
+
+        return {
+            "total_trades": total_trades,
+            "total_fees": total_fees,
+            "maker_fees": maker_fees,
+            "taker_fees": taker_fees,
+            "maker_count": maker_count,
+            "taker_count": taker_count,
+            "maker_ratio": maker_count / total_trades if total_trades > 0 else 0,
+            "total_volume": total_volume,
+            "fee_percentage": (total_fees / total_volume * 100) if total_volume > 0 else 0,
+        }
 
     def trade_counts(self) -> dict[str, int]:
         with self._lock:

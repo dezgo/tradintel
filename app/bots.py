@@ -94,14 +94,29 @@ class TradingBot:
                 delta = trade_qty  # positive
                 trade_cost = trade_qty * price
 
-            # 3b) Execute + update cash/position
-            self.exec.paper_order(self.symbol, side, trade_qty, price_hint=price)
+            # 3b) Use limit orders for maker fees (0% vs 0.1% taker)
+            # Place limit slightly away from market to increase maker fill probability
             if side == "buy":
-                self.metrics.cash -= trade_cost
-                self.metrics.pos_qty += trade_qty
+                limit_price = price * 0.9995  # 0.05% below market
+            else:
+                limit_price = price * 1.0005  # 0.05% above market
+
+            # Execute limit order
+            result = self.exec.limit_order(self.symbol, side, trade_qty, limit_price)
+
+            # 3c) Update cash/position accounting including fees
+            filled_qty = result.get("filled_qty", trade_qty)
+            avg_price = result.get("avg_price", limit_price)
+            fee = result.get("fee", 0.0)
+
+            if side == "buy":
+                total_cost = filled_qty * avg_price + fee  # cost + fees
+                self.metrics.cash -= total_cost
+                self.metrics.pos_qty += filled_qty
             else:  # sell
-                self.metrics.cash += trade_cost
-                self.metrics.pos_qty -= trade_qty
+                proceeds = filled_qty * avg_price - fee  # proceeds minus fees
+                self.metrics.cash += proceeds
+                self.metrics.pos_qty -= filled_qty
 
             self.metrics.trades += 1
             self._last_trade_ts = now  # Update last trade timestamp
