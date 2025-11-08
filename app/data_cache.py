@@ -173,31 +173,53 @@ def backfill_daily_data(symbols: list[str], days: int = 365) -> dict[str, str]:
     """
     Backfill daily data for multiple symbols from CoinGecko.
 
-    Returns dict mapping symbol -> status message.
+    - Checks existing cache first and skips if we already have enough data
+    - Uses 4-6 second delays to respect CoinGecko rate limits (10 calls/min free tier)
+    - Returns dict mapping symbol -> status message
     """
     gecko = CoinGeckoAdapter()
     results = {}
 
-    for symbol in symbols:
+    for idx, symbol in enumerate(symbols):
         try:
+            # Check if we already have enough cached data
+            coverage = store.get_bar_coverage(symbol, "1d")
+            if coverage and coverage['count'] >= days:
+                results[symbol] = f"↷ Already cached ({coverage['count']} bars)"
+                continue
+
+            # If we have some data, only fetch what we need
+            if coverage:
+                results[symbol] = f"⟳ Updating cache ({coverage['count']} → {days} bars)"
+
             # Fetch daily bars
             bars = gecko.history(symbol, "1d", limit=days)
 
             if bars:
-                # Store in cache
+                # Store in cache (INSERT OR IGNORE prevents duplicates)
                 bar_tuples = [
                     (b.ts, b.open, b.high, b.low, b.close, b.volume)
                     for b in bars
                 ]
                 store.store_bars(symbol, "1d", bar_tuples, source="coingecko")
-                results[symbol] = f"✓ Cached {len(bars)} daily bars"
+
+                # Get final count
+                final_coverage = store.get_bar_coverage(symbol, "1d")
+                final_count = final_coverage['count'] if final_coverage else len(bars)
+                results[symbol] = f"✓ Cached {final_count} daily bars"
             else:
                 results[symbol] = "✗ No data returned"
 
-            # Be nice to the API
-            time.sleep(1.5)
+            # Rate limiting: 4-6 seconds between requests
+            # CoinGecko free tier: 10-30 calls/minute
+            # 5 seconds = 12 calls/minute (safe)
+            if idx < len(symbols) - 1:  # Don't sleep after last request
+                time.sleep(5)
 
         except Exception as e:
             results[symbol] = f"✗ Error: {str(e)}"
+            # Still sleep on error to avoid hammering the API
+            if idx < len(symbols) - 1:
+                time.sleep(5)
 
     return results
