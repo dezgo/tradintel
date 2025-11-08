@@ -70,6 +70,17 @@
     </div>
   </div>
 
+  <!-- Exchange Balance -->
+  <div class="card mb-3" id="exchangeBalanceCard" style="display: none;">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h6 mb-0">Exchange Balance <span class="badge badge-active" id="executionMode" style="font-size: 0.7rem; margin-left: 0.5rem;">LOADING</span></h2>
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadExchangeBalance()">↻ Refresh</button>
+      </div>
+      <div id="exchangeBalanceContent"></div>
+    </div>
+  </div>
+
   <!-- Strategy Performance -->
   <div class="card mb-3">
     <div class="card-body">
@@ -546,12 +557,69 @@
       }
     }
 
+    async function loadExchangeBalance() {
+      try {
+        const res = await fetch('/exchange-balance.json', { cache: "no-store" });
+        const data = await res.json();
+
+        // Update execution mode badge
+        const modeElement = document.getElementById("executionMode");
+        modeElement.textContent = data.mode.toUpperCase();
+
+        if (data.mode === "paper") {
+          modeElement.className = "badge badge-down";
+          document.getElementById("exchangeBalanceCard").style.display = "none";
+          return;
+        } else {
+          modeElement.className = "badge badge-up";
+          document.getElementById("exchangeBalanceCard").style.display = "block";
+        }
+
+        // Render balances
+        const content = document.getElementById("exchangeBalanceContent");
+
+        if (data.error) {
+          content.innerHTML = `<div class="text-danger small">Error: ${data.error}</div>`;
+          return;
+        }
+
+        if (data.balances.length === 0) {
+          content.innerHTML = '<div class="muted small">No funds in account</div>';
+          return;
+        }
+
+        // Display balances in a grid
+        const balanceHtml = `
+          <div class="row g-2">
+            ${data.balances.map(bal => `
+              <div class="col-6 col-md-3">
+                <div style="background: var(--page-bg); border-radius: 6px; padding: 0.75rem;">
+                  <div class="muted small">${bal.asset}</div>
+                  <div class="mono" style="font-size: 1.25rem; font-weight: 600;">${bal.total.toFixed(8)}</div>
+                  <div class="muted" style="font-size: 0.7rem;">
+                    Free: ${bal.free.toFixed(8)}
+                    ${bal.locked > 0 ? `<br>Locked: ${bal.locked.toFixed(8)}` : ''}
+                  </div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+
+        content.innerHTML = balanceHtml;
+
+      } catch (err) {
+        console.error('Error loading exchange balance:', err);
+      }
+    }
+
     function refreshAll() {
       load();
       loadPrices();
       loadPositions();
       loadRoundtrips();
       loadFees();
+      loadExchangeBalance();
     }
 
     function startLoop() {
@@ -575,7 +643,8 @@
       loadPositions(),
       loadRoundtrips(),
       loadAutoRebalanceStatus(),
-      loadFees()
+      loadFees(),
+      loadExchangeBalance()
     ]).then(() => {
       if (autoChk.checked) startLoop();
     });

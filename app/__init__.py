@@ -244,6 +244,52 @@ def create_app() -> Flask:
         stats = store.fee_statistics()
         return jsonify(stats)
 
+    @app.get("/exchange-balance.json")
+    def exchange_balance():
+        """Return actual exchange account balance (testnet or live)."""
+        from app.portfolio import EXECUTION_MODE
+        from app.execution import BinanceTestnetExec
+
+        if EXECUTION_MODE == "paper":
+            return jsonify({
+                "mode": "paper",
+                "balances": [],
+                "message": "Paper trading mode - no exchange connection"
+            })
+
+        try:
+            # Get a test client to fetch balances
+            client = BinanceTestnetExec("balance_check")
+            response = client.exchange.privateGetAccount()
+            balances = response.get('balances', [])
+
+            # Filter to only show non-zero balances
+            non_zero = []
+            for bal in balances:
+                free = float(bal.get('free', 0))
+                locked = float(bal.get('locked', 0))
+                if free > 0 or locked > 0:
+                    non_zero.append({
+                        'asset': bal['asset'],
+                        'free': free,
+                        'locked': locked,
+                        'total': free + locked
+                    })
+
+            return jsonify({
+                "mode": EXECUTION_MODE,
+                "balances": non_zero,
+                "message": f"Connected to {EXECUTION_MODE}"
+            })
+
+        except Exception as e:
+            return jsonify({
+                "mode": EXECUTION_MODE,
+                "balances": [],
+                "error": str(e),
+                "message": f"Failed to fetch {EXECUTION_MODE} balance"
+            })
+
     @app.get("/prices.json")
     def prices():
         # get one shared data provider (from any bot)
