@@ -15,11 +15,61 @@ _runner_thread: threading.Thread | None = None
 _selector = AutoParamSelector()  # default: refresh every 30m
 
 
+def _initialize_presets():
+    """Initialize quick presets as saved strategies if they don't exist."""
+    from app.storage import store
+
+    presets = [
+        {
+            "name": "Mean Reversion • BTC • 5m",
+            "strategy": "MeanReversion",
+            "symbol": "BTC_USDT",
+            "timeframe": "5m",
+            "params": {"lookback": 50, "band": 2.0, "confirm_bars": 2},
+            "initial_capital": 1000.0,
+            "min_notional": 100.0,
+        },
+        {
+            "name": "Breakout • ETH • 5m",
+            "strategy": "Breakout",
+            "symbol": "ETH_USDT",
+            "timeframe": "5m",
+            "params": {"lookback": 60, "confirm_bars": 2},
+            "initial_capital": 1000.0,
+            "min_notional": 100.0,
+        },
+        {
+            "name": "Trend Follow • SOL • 5m",
+            "strategy": "TrendFollow",
+            "symbol": "SOL_USDT",
+            "timeframe": "5m",
+            "params": {"fast": 20, "slow": 100, "confirm_bars": 2},
+            "initial_capital": 1000.0,
+            "min_notional": 100.0,
+        },
+    ]
+
+    # Get existing saved strategies
+    existing = store.list_saved_backtests()
+    existing_names = {s["name"] for s in existing}
+
+    # Add presets that don't exist yet
+    for preset in presets:
+        if preset["name"] not in existing_names:
+            try:
+                store.save_backtest(**preset)
+            except Exception as e:
+                print(f"Failed to initialize preset '{preset['name']}': {e}")
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
 
     global _pm, _runner_thread
     _pm = build_portfolio()
+
+    # Initialize quick presets as saved strategies
+    _initialize_presets()
 
     if not os.getenv("APP_DISABLE_LOOP"):
         def _loop():

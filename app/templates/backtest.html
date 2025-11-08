@@ -149,24 +149,8 @@
           </div>
 
           <!-- Saved strategies -->
-          <div id="savedStrategies" class="d-grid gap-2 mb-3">
+          <div id="savedStrategies" class="d-grid gap-2">
             <!-- Populated by JavaScript -->
-          </div>
-
-          <!-- Quick presets -->
-          <div class="border-top pt-2">
-            <div class="small text-muted mb-2">Quick Presets</div>
-            <div class="d-grid gap-2">
-              <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('mr-btc')">
-                <strong>Mean Reversion</strong> • BTC • 5m
-              </button>
-              <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('bo-eth')">
-                <strong>Breakout</strong> • ETH • 5m
-              </button>
-              <button class="btn btn-sm btn-outline-light text-start" onclick="loadPreset('tf-sol')">
-                <strong>Trend Follow</strong> • SOL • 5m
-              </button>
-            </div>
           </div>
         </div>
       </div>
@@ -621,38 +605,6 @@
       });
     }
 
-    // Quick presets
-    function loadPreset(preset) {
-      const presets = {
-        'mr-btc': {
-          strategy: 'MeanReversion',
-          symbol: 'BTC_USDT',
-          timeframe: '5m',
-          days: 3,
-          params: { lookback: 50, band: 2.0, confirm_bars: 2 }
-        },
-        'bo-eth': {
-          strategy: 'Breakout',
-          symbol: 'ETH_USDT',
-          timeframe: '5m',
-          days: 3,
-          params: { lookback: 60, confirm_bars: 2 }
-        },
-        'tf-sol': {
-          strategy: 'TrendFollow',
-          symbol: 'SOL_USDT',
-          timeframe: '5m',
-          days: 3,
-          params: { fast: 20, slow: 100, confirm_bars: 2 }
-        }
-      };
-
-      const config = presets[preset];
-      if (!config) return;
-
-      loadConfig(config);
-    }
-
     function loadConfig(config) {
       document.getElementById('strategy').value = config.strategy;
       document.getElementById('strategy').dispatchEvent(new Event('change'));
@@ -685,7 +637,7 @@
       const container = document.getElementById('savedStrategies');
 
       if (saved.length === 0) {
-        container.innerHTML = '<div class="small text-muted">No saved strategies yet. Load a preset, adjust it, then click "Clone" to save a variant.</div>';
+        container.innerHTML = '<div class="small text-muted">No saved strategies yet. Configure a strategy below and click "Clone" to save it.</div>';
         return;
       }
 
