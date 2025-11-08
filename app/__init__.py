@@ -12,6 +12,7 @@ from flask import request
 
 _pm = None
 _runner_thread: threading.Thread | None = None
+_optimizer_thread: threading.Thread | None = None
 _selector = AutoParamSelector()  # default: refresh every 30m
 
 
@@ -65,11 +66,22 @@ def _initialize_presets():
 def create_app() -> Flask:
     app = Flask(__name__)
 
-    global _pm, _runner_thread
+    global _pm, _runner_thread, _optimizer_thread
     _pm = build_portfolio()
 
     # Initialize quick presets as saved strategies
     _initialize_presets()
+
+    # Start strategy optimizer in background
+    if not os.getenv("APP_DISABLE_OPTIMIZER"):
+        def _optimize_loop():
+            from app.optimizer import StrategyOptimizer
+            optimizer = StrategyOptimizer()
+            optimizer.run_continuous(interval_hours=24)
+
+        _optimizer_thread = threading.Thread(target=_optimize_loop, daemon=True)
+        _optimizer_thread.start()
+        print("[App] Strategy optimizer started in background (24h cycle)")
 
     if not os.getenv("APP_DISABLE_LOOP"):
         def _loop():
@@ -174,6 +186,10 @@ def create_app() -> Flask:
     @app.get("/data-ui")
     def data_ui():
         return render_template("data.html")
+
+    @app.get("/optimizer-ui")
+    def optimizer_ui():
+        return render_template("optimizer.html")
 
     @app.get("/backtest/strategies")
     def backtest_strategies():
@@ -435,5 +451,52 @@ def create_app() -> Flask:
             return jsonify({"error": f"Unknown provider '{provider}'. Use 'gate' or 'coingecko'"}), 400
 
         return jsonify({"results": results})
+
+    @app.get("/optimizer/results")
+    def list_optimizer_results():
+        """List optimization results, optionally filtered by strategy/symbol."""
+        from app.storage import store
+
+        strategy = request.args.get("strategy")
+        symbol = request.args.get("symbol")
+        limit = int(request.args.get("limit", 100))
+
+        results = store.list_optimization_results(strategy=strategy, symbol=symbol, limit=limit)
+        return jsonify({"results": results})
+
+    @app.post("/optimizer/promote/<int:result_id>")
+    def promote_optimizer_result(result_id: int):
+        """
+        Promote an optimization result to a saved strategy.
+        Creates a new saved backtest with a generated name.
+        """
+        from app.storage import store
+
+        # Get the optimization result
+        all_results = store.list_optimization_results(limit=1000)
+        result = next((r for r in all_results if r["id"] == result_id), None)
+
+        if not result:
+            return jsonify({"error": "Optimization result not found"}), 404
+
+        # Generate name from result
+        name = f"{result['strategy']} • {result['symbol'].replace('_USDT', '')} • {result['timeframe']} [Opt {result['score']:.0f}]"
+
+        try:
+            # Save as backtest configuration
+            backtest_id = store.save_backtest(
+                name=name,
+                strategy=result["strategy"],
+                symbol=result["symbol"],
+                timeframe=result["timeframe"],
+                params=result["params"],
+                initial_capital=1000.0,
+                min_notional=100.0,
+            )
+
+            return jsonify({"id": backtest_id, "name": name})
+
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
     return app

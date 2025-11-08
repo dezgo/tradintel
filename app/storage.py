@@ -130,6 +130,34 @@ class Storage:
             )
             self._conn.commit()
 
+        # Migrate to version 4: add optimization_results table
+        if ver < 4:
+            cur.executescript(
+                """
+                BEGIN;
+                CREATE TABLE IF NOT EXISTS optimization_results (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    strategy TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    params_json TEXT NOT NULL,
+                    score REAL NOT NULL,
+                    total_return REAL NOT NULL,
+                    sharpe_ratio REAL NOT NULL,
+                    max_drawdown REAL NOT NULL,
+                    total_trades INTEGER NOT NULL,
+                    win_rate REAL NOT NULL,
+                    tested_ts INTEGER NOT NULL,
+                    UNIQUE(strategy, symbol, timeframe, params_json)
+                );
+                CREATE INDEX IF NOT EXISTS idx_opt_score ON optimization_results(score DESC);
+                CREATE INDEX IF NOT EXISTS idx_opt_strategy ON optimization_results(strategy, symbol, timeframe);
+                PRAGMA user_version = 4;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
     # ── Trades ────────────────────────────────────────────────────────────────
     def record_trade(
         self, bot_name: str, symbol: str, side: str, qty: float, price: float, ts: Optional[int] = None
@@ -535,6 +563,109 @@ class Storage:
             cur = self._conn.execute("DELETE FROM saved_backtests WHERE id = ?", (int(backtest_id),))
             self._conn.commit()
             return cur.rowcount > 0
+
+    # ── Optimization results ───────────────────────────────────────────────────
+    def save_optimization_result(
+        self,
+        *,
+        strategy: str,
+        symbol: str,
+        timeframe: str,
+        params: Dict[str, Any],
+        score: float,
+        total_return: float,
+        sharpe_ratio: float,
+        max_drawdown: float,
+        total_trades: int,
+        win_rate: float,
+        tested_ts: int,
+    ) -> int:
+        """Save an optimization result. Updates if same config exists."""
+        params_json = json.dumps(params, separators=(",", ":"))
+
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                INSERT INTO optimization_results(
+                    strategy, symbol, timeframe, params_json, score,
+                    total_return, sharpe_ratio, max_drawdown, total_trades, win_rate, tested_ts
+                )
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(strategy, symbol, timeframe, params_json) DO UPDATE SET
+                    score=excluded.score,
+                    total_return=excluded.total_return,
+                    sharpe_ratio=excluded.sharpe_ratio,
+                    max_drawdown=excluded.max_drawdown,
+                    total_trades=excluded.total_trades,
+                    win_rate=excluded.win_rate,
+                    tested_ts=excluded.tested_ts
+                """,
+                (
+                    strategy,
+                    symbol,
+                    timeframe,
+                    params_json,
+                    float(score),
+                    float(total_return),
+                    float(sharpe_ratio),
+                    float(max_drawdown),
+                    int(total_trades),
+                    float(win_rate),
+                    int(tested_ts),
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def list_optimization_results(
+        self, strategy: str = None, symbol: str = None, limit: int = 100
+    ) -> list[dict]:
+        """
+        List optimization results, optionally filtered by strategy/symbol.
+        Returns top results sorted by score (best first).
+        """
+        sql = [
+            """
+            SELECT id, strategy, symbol, timeframe, params_json, score,
+                   total_return, sharpe_ratio, max_drawdown, total_trades, win_rate, tested_ts
+            FROM optimization_results
+            WHERE 1=1
+            """
+        ]
+        args = []
+
+        if strategy:
+            sql.append("AND strategy = ?")
+            args.append(strategy)
+
+        if symbol:
+            sql.append("AND symbol = ?")
+            args.append(symbol)
+
+        sql.append("ORDER BY score DESC LIMIT ?")
+        args.append(int(limit))
+
+        with self._lock:
+            cur = self._conn.execute(" ".join(sql), args)
+            rows = cur.fetchall()
+
+        return [
+            {
+                "id": int(r[0]),
+                "strategy": r[1],
+                "symbol": r[2],
+                "timeframe": r[3],
+                "params": json.loads(r[4]),
+                "score": float(r[5]),
+                "total_return": float(r[6]),
+                "sharpe_ratio": float(r[7]),
+                "max_drawdown": float(r[8]),
+                "total_trades": int(r[9]),
+                "win_rate": float(r[10]),
+                "tested_ts": int(r[11]),
+            }
+            for r in rows
+        ]
 
     # ── Historical bars cache ──────────────────────────────────────────────────
     def store_bars(self, symbol: str, timeframe: str, bars: list[tuple[int, float, float, float, float, float]], source: str = "gate") -> None:

@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+
+{% block title %}TradingBot — Strategy Optimizer{% endblock %}
+{% block page_title %}TradingBot — Strategy Optimizer{% endblock %}
+
+{% set active_page = 'optimizer' %}
+
+{% block extra_styles %}
+  /* Score badges */
+  .score-badge {
+    font-size: 1.25rem;
+    font-weight: 700;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+  }
+  .score-excellent { background: #062a1a; color: var(--text); border: 2px solid var(--green); }
+  .score-good { background: #1a2008; color: var(--text); border: 2px solid #84cc16; }
+  .score-average { background: #2a2008; color: var(--text); border: 2px solid var(--yellow); }
+  .score-poor { background: #2c0b0b; color: var(--text); border: 2px solid var(--red); }
+
+  /* Metric cells */
+  .metric-good { color: var(--green); }
+  .metric-neutral { color: var(--text); }
+  .metric-bad { color: var(--red); }
+{% endblock %}
+
+{% block extra_nav %}
+  <a href="/optimizer-ui" class="btn btn-sm btn-primary">Optimizer</a>
+{% endblock %}
+
+{% block content %}
+  <div class="row mb-3">
+    <div class="col">
+      <div class="alert alert-info small">
+        <strong>How it works:</strong> The optimizer continuously tests parameter combinations for all strategies on BTC, ETH, and SOL daily charts. Results are scored by: low drawdown (most important) → high Sharpe ratio → high return. Top performers can be promoted to your saved strategies.
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <!-- Filters -->
+    <div class="col-lg-3">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h2 class="h6 mb-3">Filters</h2>
+
+          <div class="mb-3">
+            <label class="form-label small">Strategy</label>
+            <select class="form-select form-select-sm" id="filterStrategy">
+              <option value="">All Strategies</option>
+              <option value="MeanReversion">Mean Reversion</option>
+              <option value="Breakout">Breakout</option>
+              <option value="TrendFollow">Trend Following</option>
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small">Symbol</label>
+            <select class="form-select form-select-sm" id="filterSymbol">
+              <option value="">All Symbols</option>
+              <option value="BTC_USDT">BTC_USDT</option>
+              <option value="ETH_USDT">ETH_USDT</option>
+              <option value="SOL_USDT">SOL_USDT</option>
+            </select>
+          </div>
+
+          <button class="btn btn-sm btn-primary w-100" onclick="loadResults()">Apply Filters</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <h2 class="h6 mb-2">Scoring System</h2>
+          <div class="small text-muted">
+            <p class="mb-2">Score = 100 - Drawdown + (Sharpe × 10) + (Return × 0.1)</p>
+            <div class="mb-1">
+              <span class="badge score-excellent">130+</span> Excellent
+            </div>
+            <div class="mb-1">
+              <span class="badge score-good">110-130</span> Good
+            </div>
+            <div class="mb-1">
+              <span class="badge score-average">90-110</span> Average
+            </div>
+            <div class="mb-1">
+              <span class="badge score-poor">&lt;90</span> Poor
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="col-lg-9">
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h5 mb-0">Optimization Results</h2>
+            <button class="btn btn-sm btn-outline-light" onclick="loadResults()">
+              <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/>
+                <path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z"/>
+              </svg>
+              Refresh
+            </button>
+          </div>
+
+          <div id="resultsContainer">
+            <div class="text-center py-5">
+              <div class="spinner-border text-primary mb-3" role="status">
+                <span class="visually-hidden">Loading...</span>
+              </div>
+              <p class="text-muted">Loading optimization results...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    async function loadResults() {
+      const strategy = document.getElementById('filterStrategy').value;
+      const symbol = document.getElementById('filterSymbol').value;
+
+      const params = new URLSearchParams();
+      if (strategy) params.append('strategy', strategy);
+      if (symbol) params.append('symbol', symbol);
+      params.append('limit', '50');
+
+      try {
+        const res = await fetch(`/optimizer/results?${params}`);
+        const data = await res.json();
+
+        renderResults(data.results || []);
+      } catch (e) {
+        console.error('Failed to load optimization results:', e);
+        document.getElementById('resultsContainer').innerHTML =
+          '<div class="alert alert-danger">Failed to load results. Check console for details.</div>';
+      }
+    }
+
+    function renderResults(results) {
+      const container = document.getElementById('resultsContainer');
+
+      if (results.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-5">
+            <p class="text-muted mb-0">No optimization results yet. The optimizer runs every 24 hours in the background.</p>
+            <p class="text-muted small">Make sure you have cached data for BTC, ETH, and SOL (see Data page).</p>
+          </div>
+        `;
+        return;
+      }
+
+      let html = `
+        <div class="table-responsive">
+          <table class="table table-sm table-dark table-hover">
+            <thead>
+              <tr>
+                <th>Score</th>
+                <th>Strategy</th>
+                <th>Symbol</th>
+                <th>Parameters</th>
+                <th>Return</th>
+                <th>Sharpe</th>
+                <th>Drawdown</th>
+                <th>Trades</th>
+                <th>Win %</th>
+                <th>Tested</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+      `;
+
+      results.forEach(r => {
+        const scoreClass = r.score >= 130 ? 'score-excellent' :
+                          r.score >= 110 ? 'score-good' :
+                          r.score >= 90 ? 'score-average' : 'score-poor';
+
+        const returnClass = r.total_return >= 20 ? 'metric-good' :
+                           r.total_return <= -10 ? 'metric-bad' : 'metric-neutral';
+
+        const sharpeClass = r.sharpe_ratio >= 1.5 ? 'metric-good' :
+                           r.sharpe_ratio <= 0.5 ? 'metric-bad' : 'metric-neutral';
+
+        const ddClass = r.max_drawdown <= 10 ? 'metric-good' :
+                       r.max_drawdown >= 20 ? 'metric-bad' : 'metric-neutral';
+
+        const wrClass = r.win_rate >= 55 ? 'metric-good' :
+                       r.win_rate <= 45 ? 'metric-bad' : 'metric-neutral';
+
+        const paramsStr = Object.entries(r.params)
+          .map(([k, v]) => `${k}:${v}`)
+          .join(', ');
+
+        const testedDate = new Date(r.tested_ts * 1000).toLocaleDateString();
+
+        html += `
+          <tr>
+            <td><span class="badge ${scoreClass}">${r.score.toFixed(0)}</span></td>
+            <td>${r.strategy}</td>
+            <td class="mono">${r.symbol.replace('_USDT', '')}</td>
+            <td class="small">${paramsStr}</td>
+            <td class="mono ${returnClass}">${r.total_return >= 0 ? '+' : ''}${r.total_return.toFixed(1)}%</td>
+            <td class="mono ${sharpeClass}">${r.sharpe_ratio.toFixed(2)}</td>
+            <td class="mono ${ddClass}">${r.max_drawdown.toFixed(1)}%</td>
+            <td class="mono">${r.total_trades}</td>
+            <td class="mono ${wrClass}">${r.win_rate.toFixed(0)}%</td>
+            <td class="small">${testedDate}</td>
+            <td>
+              <button class="btn btn-sm btn-outline-success" onclick="promoteResult(${r.id})" title="Promote to saved strategy">
+                <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                  <path d="M10.97 4.97a.235.235 0 0 0-.02.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-1.071-1.05z"/>
+                </svg>
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+
+      html += `
+            </tbody>
+          </table>
+        </div>
+      `;
+
+      container.innerHTML = html;
+    }
+
+    async function promoteResult(id) {
+      if (!confirm('Promote this result to a saved strategy?')) return;
+
+      try {
+        const res = await fetch(`/optimizer/promote/${id}`, { method: 'POST' });
+        const data = await res.json();
+
+        if (data.error) {
+          alert('Error promoting: ' + data.error);
+        } else {
+          alert(`Promoted to saved strategy: "${data.name}"\n\nYou can now use it from the Backtest page!`);
+        }
+      } catch (e) {
+        alert('Error promoting: ' + e.message);
+      }
+    }
+
+    // Add filter event listeners
+    document.getElementById('filterStrategy').addEventListener('change', loadResults);
+    document.getElementById('filterSymbol').addEventListener('change', loadResults);
+
+    // Load results on page load
+    loadResults();
+  </script>
+{% endblock %}
