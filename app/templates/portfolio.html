@@ -42,114 +42,113 @@
 
 {% block content %}
 
-  <!-- Top summary + (optional) live prices placeholder -->
-  <div id="summary" class="mb-3"></div>
-  <div id="prices" class="mb-3"></div>
-
-  <!-- Global symbol filter (shared note area on right) -->
-  <div class="card mb-3">
-    <div class="card-body d-flex flex-wrap gap-3 align-items-center">
-      <h2 class="h6 mb-0 section-title">Filter</h2>
-      <div class="d-flex align-items-center gap-2">
-        <label for="symFilter" class="muted small">Symbol</label>
-        <select id="symFilter" class="form-select form-select-sm" style="width: 160px;">
-          <option value="">All</option>
-          <option>BTC_USDT</option>
-          <option>ETH_USDT</option>
-          <option>SOL_USDT</option>
-        </select>
+  <!-- KPI Cards -->
+  <div class="row g-2 g-md-3 mb-3">
+    <div class="col-6 col-md-3">
+      <div class="card text-center" style="padding: 1.5rem 1rem;">
+        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Total Equity</div>
+        <div class="mono" style="font-size: 2rem; font-weight: 600;" id="kpiEquity">$0</div>
       </div>
-      <div class="ms-auto mono small muted" id="filterNote"></div>
     </div>
-  </div>
-
-  <!-- Automatic Strategy Assignment -->
-  <div class="card mb-3">
-    <div class="card-body">
-      <h2 class="h5 mb-3 section-title">Automatic Strategy Assignment</h2>
-      <div class="d-flex align-items-center gap-3 flex-wrap">
-        <div class="form-check form-switch">
-          <input class="form-check-input" type="checkbox" id="autoRebalanceToggle" />
-          <label class="form-check-label" for="autoRebalanceToggle">
-            Enable Auto-Assignment (Moves underperforming workers to best strategy every 60 bars)
-          </label>
-        </div>
-        <button class="btn btn-sm btn-primary" id="manualRebalanceBtn">Trigger Now</button>
-        <div class="ms-auto muted small" id="rebalanceStatus"></div>
+    <div class="col-6 col-md-3">
+      <div class="card text-center" style="padding: 1.5rem 1rem;">
+        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Active Workers</div>
+        <div class="mono" style="font-size: 2rem; font-weight: 600;" id="kpiWorkers">0</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card text-center" style="padding: 1.5rem 1rem;">
+        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Open Positions</div>
+        <div class="mono" style="font-size: 2rem; font-weight: 600;" id="kpiPositions">0</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card text-center" style="padding: 1.5rem 1rem;">
+        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Total Trades</div>
+        <div class="mono" style="font-size: 2rem; font-weight: 600;" id="kpiTrades">0</div>
       </div>
     </div>
   </div>
 
-  <!-- Workers + filters -->
+  <!-- Strategy Performance -->
   <div class="card mb-3">
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="h5 mb-0 section-title">Workers</h2>
-        <div class="d-flex align-items-center gap-3">
-          <div class="d-flex align-items-center gap-2">
-            <label for="filterStrategy" class="muted small">Strategy</label>
+        <h2 class="h6 mb-0">Strategy Performance</h2>
+        <a href="#" class="btn btn-link btn-sm" data-bs-toggle="modal" data-bs-target="#workersModal">View All Workers →</a>
+      </div>
+      <div id="strategyBars"></div>
+    </div>
+  </div>
+
+  <!-- Auto-Rebalance -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="autoRebalanceToggle" />
+            <label class="form-check-label small" for="autoRebalanceToggle">
+              Auto-assign to best strategy
+            </label>
+          </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <span class="muted small" id="rebalanceStatus"></span>
+          <button class="btn btn-sm btn-primary" id="manualRebalanceBtn">Rebalance Now</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Activity -->
+  <div class="row g-2 g-md-3">
+    <div class="col-12 col-md-6">
+      <div class="card">
+        <div class="card-body">
+          <h2 class="h6 mb-3">Open Positions <span class="muted small" id="posCount">(0)</span></h2>
+          <div id="recentPositions"></div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-6">
+      <div class="card">
+        <div class="card-body">
+          <h2 class="h6 mb-3">Recent Trades <span class="muted small" id="tradesCount">(0)</span></h2>
+          <div id="recentTrades"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Workers Modal -->
+  <div class="modal fade" id="workersModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content" style="background: var(--panel); color: var(--text); border: 1px solid var(--panel-border);">
+        <div class="modal-header" style="border-bottom: 1px solid var(--panel-border);">
+          <h5 class="modal-title">All Workers</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3 d-flex gap-2 flex-wrap">
             <select id="filterStrategy" class="form-select form-select-sm" style="width: 160px;">
-              <option value="">All</option>
+              <option value="">All Strategies</option>
               <option value="MeanReversion">Mean Reversion</option>
               <option value="Breakout">Breakout</option>
               <option value="TrendFollow">Trend Follow</option>
             </select>
-          </div>
-          <div class="d-flex align-items-center gap-2">
-            <label for="filterSymbol" class="muted small">Symbol</label>
-            <select id="filterSymbol" class="form-select form-select-sm" style="width: 160px;">
-              <option value="">All</option>
+            <select id="filterSymbol" class="form-select form-select-sm" style="width: 140px;">
+              <option value="">All Symbols</option>
               <option>BTC_USDT</option>
               <option>ETH_USDT</option>
               <option>SOL_USDT</option>
             </select>
           </div>
+          <div id="workersTable"></div>
         </div>
-      </div>
-      <div id="workersTable"></div>
-    </div>
-  </div>
-
-  <!-- Collapsible Positions -->
-  <div class="card mb-3">
-    <div class="card-body">
-      <div class="collapse-toggle d-flex justify-content-between align-items-center" data-bs-toggle="collapse" data-bs-target="#positionsCollapse">
-        <h2 class="h6 mb-0 section-title">Open Positions</h2>
-        <div class="d-flex align-items-center gap-2">
-          <span class="mono small muted" id="positionsCount">-</span>
-          <svg width="16" height="16" fill="currentColor" class="bi bi-chevron-down" viewBox="0 0 16 16">
-            <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
-          </svg>
-        </div>
-      </div>
-      <div class="collapse" id="positionsCollapse">
-        <hr class="my-2" style="border-color: var(--panel-border);">
-        <div id="positions"></div>
       </div>
     </div>
   </div>
-
-  <!-- Collapsible Recent Trades -->
-  <div class="card mb-3">
-    <div class="card-body">
-      <div class="collapse-toggle d-flex justify-content-between align-items-center" data-bs-toggle="collapse" data-bs-target="#tradesCollapse">
-        <h2 class="h6 mb-0 section-title">Recent Trades</h2>
-        <div class="d-flex align-items-center gap-2">
-          <span class="mono small muted" id="tradesCount">-</span>
-          <svg width="16" height="16" fill="currentColor" class="bi bi-chevron-down" viewBox="0 0 16 16">
-            <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
-          </svg>
-        </div>
-      </div>
-      <div class="collapse" id="tradesCollapse">
-        <hr class="my-2" style="border-color: var(--panel-border);">
-        <div id="roundtrips"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Strategy overview cards -->
-  <div id="strategyOverview" class="mb-3"></div>
 
 {% endblock %}
 
@@ -171,82 +170,66 @@
       return `<span class="badge ${cls}">${sign}${pct(c)}</span>`;
     }
 
-    function renderSummary(snap) {
+    function updateKPIs(snap) {
       const totalEq = snap.strategies.reduce((a, s) =>
         a + s.bots.reduce((bacc, b) => bacc + Number(b.equity), 0), 0
       );
       const totalTrades = snap.strategies.reduce((a, s) =>
         a + s.bots.reduce((bacc, b) => bacc + Number(b.trades), 0), 0
       );
+      const activeWorkers = allWorkers.filter(w =>
+        openPositions.some(p => p.bot === w.name)
+      ).length;
 
-      document.getElementById("summary").innerHTML = `
-        <div class="card">
-          <div class="card-body">
-            <div class="row g-3">
-              <div class="col-md-3">
-                <div class="muted small">Total Equity</div>
-                <div class="mono h4 mb-0">$${fmt2(totalEq)}</div>
-              </div>
-              <div class="col-md-3">
-                <div class="muted small">Total Workers</div>
-                <div class="mono h4 mb-0">${allWorkers.length}</div>
-              </div>
-              <div class="col-md-3">
-                <div class="muted small">Active Positions</div>
-                <div class="mono h4 mb-0">${openPositions.length}</div>
-              </div>
-              <div class="col-md-3">
-                <div class="muted small">Total Trades</div>
-                <div class="mono h4 mb-0">${totalTrades}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
+      document.getElementById("kpiEquity").textContent = money(totalEq);
+      document.getElementById("kpiWorkers").textContent = `${activeWorkers}/${allWorkers.length}`;
+      document.getElementById("kpiPositions").textContent = openPositions.length;
+      document.getElementById("kpiTrades").textContent = totalTrades;
     }
 
-    function renderStrategyOverview(snap) {
+    function renderStrategyBars(snap) {
       const strategies = snap.strategies.map(s => {
         const equity = s.bots.reduce((acc, b) => acc + Number(b.equity), 0);
         const avgScore = s.bots.reduce((acc, b) => acc + Number(b.score), 0) / s.bots.length;
         const workers = s.bots.length;
-        return { name: s.name, equity, avgScore, workers };
+        const activeWorkers = s.bots.filter(b =>
+          openPositions.some(p => p.bot === b.name)
+        ).length;
+        return { name: s.name, equity, avgScore, workers, activeWorkers };
       });
 
-      const cards = strategies.map(s => `
-        <div class="col-md-4">
-          <div class="card">
-            <div class="card-body">
-              <div class="d-flex justify-content-between align-items-start mb-2">
-                <h3 class="h6 mb-0 text-capitalize">${s.name.replaceAll("_", " ")}</h3>
-                ${badge(s.avgScore)}
+      const bars = strategies.map(s => {
+        const scoreClass = s.avgScore >= 0 ? 'badge-up' : 'badge-down';
+        const sign = s.avgScore >= 0 ? '+' : '';
+        return `
+          <div style="display: flex; align-items: center; padding: 0.75rem 1rem; margin-bottom: 0.5rem; background: rgba(255,255,255,0.02); border-radius: 6px; border-left: 3px solid var(--blue);">
+            <div style="flex: 1; font-weight: 500;">${s.name.replaceAll("_", " ")}</div>
+            <div style="display: flex; gap: 1.5rem; align-items: center;">
+              <div style="text-align: right;">
+                <div class="muted" style="font-size: 0.7rem; opacity: 0.7;">Workers</div>
+                <div class="mono" style="font-weight: 600;">${s.activeWorkers}/${s.workers}</div>
               </div>
-              <div class="d-flex justify-content-between align-items-center">
-                <div>
-                  <div class="muted small">Equity</div>
-                  <div class="mono">$${fmt2(s.equity)}</div>
-                </div>
-                <div>
-                  <div class="muted small">Workers</div>
-                  <div class="mono">${s.workers}</div>
+              <div style="text-align: right;">
+                <div class="muted" style="font-size: 0.7rem; opacity: 0.7;">Equity</div>
+                <div class="mono" style="font-weight: 600;">${money(s.equity)}</div>
+              </div>
+              <div style="text-align: right;">
+                <div class="muted" style="font-size: 0.7rem; opacity: 0.7;">Score</div>
+                <div style="font-weight: 600;">
+                  <span class="badge ${scoreClass}">${sign}${pct(s.avgScore)}</span>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      `).join("");
+        `;
+      }).join("");
 
-      document.getElementById("strategyOverview").innerHTML = `
-        <div class="card"><div class="card-body">
-          <h2 class="h5 mb-3 section-title">Strategy Overview</h2>
-          <div class="row g-3">${cards}</div>
-        </div></div>
-      `;
+      document.getElementById("strategyBars").innerHTML = bars;
     }
 
     function renderWorkers() {
-      const filterStrategy = document.getElementById("filterStrategy").value;
-      const filterSymbol = document.getElementById("filterSymbol").value;
+      const filterStrategy = document.getElementById("filterStrategy")?.value || "";
+      const filterSymbol = document.getElementById("filterSymbol")?.value || "";
 
       const filtered = allWorkers.filter(w => {
         if (filterStrategy && w.strategyType !== filterStrategy) return false;
@@ -256,21 +239,23 @@
 
       const rows = filtered.map(w => {
         const hasPosition = openPositions.some(p => p.bot === w.name);
-        const statusIcon = hasPosition
-          ? '<span class="status-active">●</span>'
-          : '<span class="status-idle">○</span>';
+        const statusDot = hasPosition
+          ? '<span style="color: var(--green)">●</span>'
+          : '<span style="color: var(--text-muted)">○</span>';
+        const scoreClass = w.score >= 0 ? 'badge-up' : 'badge-down';
+        const sign = w.score >= 0 ? '+' : '';
 
         return `
-          <tr>
-            <td class="mono">${statusIcon} ${w.name}</td>
-            <td class="mono">${w.symbol}</td>
-            <td class="mono">${w.strategyType}</td>
-            <td class="mono">$${fmt2(w.equity)}</td>
-            <td class="mono">${fmt2(w.allocation)}</td>
-            <td>${badge(w.score)}</td>
-            <td class="mono">${w.trades}</td>
-            <td>
-              <select class="form-select form-select-sm strategy-change" data-worker="${w.name}" style="width: 160px;">
+          <tr style="border-bottom: 1px solid var(--panel-border);">
+            <td class="py-2">${statusDot}</td>
+            <td class="py-2 mono small">${w.name}</td>
+            <td class="py-2 mono">${w.symbol}</td>
+            <td class="py-2">${w.strategyType}</td>
+            <td class="py-2 mono">${money(w.equity)}</td>
+            <td class="py-2"><span class="badge ${scoreClass}">${sign}${pct(w.score)}</span></td>
+            <td class="py-2 mono">${w.trades}</td>
+            <td class="py-2">
+              <select class="form-select form-select-sm strategy-change" data-worker="${w.name}" style="width: 150px; font-size: 0.75rem;">
                 <option value="MeanReversion" ${w.strategyType === 'MeanReversion' ? 'selected' : ''}>Mean Reversion</option>
                 <option value="Breakout" ${w.strategyType === 'Breakout' ? 'selected' : ''}>Breakout</option>
                 <option value="TrendFollow" ${w.strategyType === 'TrendFollow' ? 'selected' : ''}>Trend Follow</option>
@@ -282,25 +267,24 @@
 
       document.getElementById("workersTable").innerHTML = `
         <div class="table-responsive">
-          <table class="table table-sm table-dark table-striped align-middle">
-            <thead>
+          <table class="table table-sm mb-0" style="color: var(--text);">
+            <thead style="border-bottom: 2px solid var(--panel-border);">
               <tr>
-                <th>Worker</th>
-                <th>Symbol</th>
-                <th>Strategy</th>
-                <th>Equity</th>
-                <th>Allocation</th>
-                <th>Score</th>
-                <th>Trades</th>
-                <th>Change Strategy</th>
+                <th></th>
+                <th class="small">Worker</th>
+                <th class="small">Symbol</th>
+                <th class="small">Strategy</th>
+                <th class="small">Equity</th>
+                <th class="small">Score</th>
+                <th class="small">Trades</th>
+                <th class="small">Change To</th>
               </tr>
             </thead>
-            <tbody>${rows}</tbody>
+            <tbody>${rows || '<tr><td colspan="8" class="text-center py-3 muted">No workers found</td></tr>'}</tbody>
           </table>
         </div>
         <div class="mt-2 muted small">
-          Showing ${filtered.length} of ${allWorkers.length} workers
-          ${filterStrategy || filterSymbol ? ' (filtered)' : ''}
+          ${filtered.length} of ${allWorkers.length} workers ${filterStrategy || filterSymbol ? '(filtered)' : ''}
         </div>
       `;
 
@@ -334,88 +318,81 @@
       }
     }
 
-    function renderPositions(items) {
-      document.getElementById("positionsCount").textContent = `${items.length} open`;
+    function renderRecentPositions(items) {
+      document.getElementById("posCount").textContent = `(${items.length})`;
 
       if (items.length === 0) {
-        document.getElementById("positions").innerHTML = '<div class="muted small">No open positions</div>';
+        document.getElementById("recentPositions").innerHTML = '<div class="muted small">No open positions</div>';
         return;
       }
 
-      const rows = items.map(p => {
+      const list = items.slice(0, 5).map(p => {
         const mark = currentPrices[p.symbol]?.price;
-        let unreal = "-";
+        let pnl = 0;
         if (mark != null) {
           const qty = Number(p.qty);
           const avg = Number(p.avg_cost);
           const sideLong = p.side === "LONG";
-          const pnl = sideLong ? (mark - avg) * qty : (avg - mark) * qty;
-          unreal = "$" + pnl.toFixed(2);
+          pnl = sideLong ? (mark - avg) * qty : (avg - mark) * qty;
         }
+        const pnlClass = pnl >= 0 ? 'badge-up' : 'badge-down';
+
         return `
-          <tr>
-            <td class="mono">${p.bot}</td>
-            <td class="mono">${p.symbol}</td>
-            <td class="mono">${p.side}</td>
-            <td class="mono">${Number(p.qty).toFixed(6)}</td>
-            <td class="mono">${Number(p.avg_cost).toFixed(4)}</td>
-            <td class="mono">${unreal}</td>
-          </tr>
+          <div style="display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid var(--panel-border);">
+            <div>
+              <div class="mono small">${p.symbol} ${p.side}</div>
+              <div class="muted small">${p.bot}</div>
+            </div>
+            <div class="text-end">
+              <div class="mono small">${Number(p.qty).toFixed(4)}</div>
+              <div><span class="badge ${pnlClass}">${money(pnl)}</span></div>
+            </div>
+          </div>
         `;
       }).join("");
 
-      document.getElementById("positions").innerHTML = `
-        <div class="table-responsive">
-          <table class="table table-sm table-dark table-striped align-middle">
-            <thead><tr>
-              <th>Worker</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Avg Cost</th><th>Unrealized P&L</th>
-            </tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>`;
+      document.getElementById("recentPositions").innerHTML = list;
     }
 
     async function loadPositions() {
       const res = await fetch('/positions.json', { cache: "no-store" });
       const data = await res.json();
       openPositions = data.items || [];
-      renderPositions(openPositions);
+      renderRecentPositions(openPositions);
     }
 
-    function renderRoundtrips(items) {
-      document.getElementById("tradesCount").textContent = `${items.length} recent`;
+    function renderRecentTrades(items) {
+      document.getElementById("tradesCount").textContent = `(${items.length})`;
 
       if (items.length === 0) {
-        document.getElementById("roundtrips").innerHTML = '<div class="muted small">No recent trades</div>';
+        document.getElementById("recentTrades").innerHTML = '<div class="muted small">No recent trades</div>';
         return;
       }
 
-      const rows = items.slice(0, 20).map(rt => `
-        <tr>
-          <td class="mono small">${new Date(rt.close_ts*1000).toLocaleString()}</td>
-          <td class="mono">${rt.bot}</td>
-          <td class="mono">${rt.symbol}</td>
-          <td class="mono">${rt.side}</td>
-          <td class="mono">${(rt.pnl).toFixed(2)}</td>
-          <td class="mono">${(rt.pnl_pct*100).toFixed(2)}%</td>
-        </tr>
-      `).join("");
+      const list = items.slice(0, 5).map(rt => {
+        const pnlClass = rt.pnl >= 0 ? 'badge-up' : 'badge-down';
+        const sign = rt.pnl >= 0 ? '+' : '';
+        return `
+          <div style="display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid var(--panel-border);">
+            <div>
+              <div class="mono small">${rt.symbol} ${rt.side}</div>
+              <div class="muted small">${new Date(rt.close_ts*1000).toLocaleTimeString()}</div>
+            </div>
+            <div class="text-end">
+              <div class="mono small">${rt.bot}</div>
+              <div><span class="badge ${pnlClass}">${sign}${money(rt.pnl)}</span></div>
+            </div>
+          </div>
+        `;
+      }).join("");
 
-      document.getElementById("roundtrips").innerHTML = `
-        <div class="table-responsive">
-          <table class="table table-sm table-dark table-striped align-middle">
-            <thead><tr>
-              <th>Closed</th><th>Worker</th><th>Symbol</th><th>Side</th><th>P&L $</th><th>P&L %</th>
-            </tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>`;
+      document.getElementById("recentTrades").innerHTML = list;
     }
 
     async function loadRoundtrips() {
       const res = await fetch('/roundtrips.json?limit=20', { cache: "no-store" });
       const data = await res.json();
-      renderRoundtrips(data.items || []);
+      renderRecentTrades(data.items || []);
     }
 
     async function loadPrices() {
@@ -440,7 +417,7 @@
             equity: b.equity,
             score: b.score,
             trades: b.trades_db ?? b.trades,
-            allocation: 0, // if/when provided
+            allocation: 0,
             strategyName: s.name,
             strategyType: b.name.startsWith('mr_') ? 'MeanReversion'
                         : b.name.startsWith('bo_') ? 'Breakout'
@@ -449,9 +426,8 @@
         });
       });
 
-      renderSummary(snap);
-      renderStrategyOverview(snap);
-      renderWorkers();
+      updateKPIs(snap);
+      renderStrategyBars(snap);
     }
 
     // Auto-assign controls
@@ -506,9 +482,14 @@
       }
     });
 
-    // Filter handlers
-    document.getElementById("filterStrategy").addEventListener("change", renderWorkers);
-    document.getElementById("filterSymbol").addEventListener("change", renderWorkers);
+    // Workers modal event
+    document.getElementById('workersModal')?.addEventListener('show.bs.modal', () => {
+      renderWorkers();
+    });
+
+    // Filter handlers (in modal)
+    document.getElementById("filterStrategy")?.addEventListener("change", renderWorkers);
+    document.getElementById("filterSymbol")?.addEventListener("change", renderWorkers);
 
     // Refresh controls
     let timer = null;
@@ -518,15 +499,17 @@
     const tfTag = document.getElementById("tfTag");
     tfTag.textContent = "TF: 1m";
 
+    function refreshAll() {
+      load();
+      loadPrices();
+      loadPositions();
+      loadRoundtrips();
+    }
+
     function startLoop() {
       stopLoop();
       const ms = Number(intervalSel.value) * 1000;
-      timer = setInterval(() => {
-        load();
-        loadPrices();
-        loadPositions();
-        loadRoundtrips();
-      }, ms);
+      timer = setInterval(refreshAll, ms);
     }
 
     function stopLoop() {
@@ -535,7 +518,7 @@
 
     autoChk.addEventListener("change", () => { autoChk.checked ? startLoop() : stopLoop(); });
     intervalSel.addEventListener("change", () => { if (autoChk.checked) startLoop(); });
-    refreshBtn.addEventListener("click", () => { load(); loadPrices(); loadPositions(); loadRoundtrips(); });
+    refreshBtn.addEventListener("click", refreshAll);
 
     // Initial load
     Promise.all([
