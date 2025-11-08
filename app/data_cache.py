@@ -27,25 +27,32 @@ class CachedDataProvider(DataProvider):
         """Always fetch live price from underlying provider (don't cache)."""
         return self.provider.last_price(symbol, tf)
 
-    def history(self, symbol: str, tf: str, limit: int = 200) -> List[Bar]:
+    def history(self, symbol: str, tf: str, limit: int = 200, start_ts: int = None, end_ts: int = None) -> List[Bar]:
         """
         Get historical bars, using cache when possible.
 
         Strategy:
         1. Check what we have in cache
-        2. If cache has enough recent bars, use cache
+        2. If cache has enough bars in the requested range, use cache
         3. Otherwise, fetch from provider and cache the results
+
+        Args:
+            symbol: Trading symbol
+            tf: Timeframe
+            limit: Max number of bars to return
+            start_ts: Optional start timestamp (filters cached bars)
+            end_ts: Optional end timestamp (filters cached bars)
         """
         now = int(time.time())
 
         # Check cache coverage
         coverage = store.get_bar_coverage(symbol, tf)
 
-        # If we have cache and it's recent enough, use it
-        if coverage and coverage['count'] >= limit:
-            # Get most recent bars from cache
-            cached = store.get_bars(symbol, tf, limit=limit * 2)  # Get extra to ensure we have enough
-            if len(cached) >= limit:
+        # Try to get from cache if available
+        if coverage:
+            # Get bars from cache with date range filters
+            cached = store.get_bars(symbol, tf, start_ts=start_ts, end_ts=end_ts)
+            if len(cached) > 0:
                 # Cache hit! Convert to Bar objects
                 bars = [
                     Bar(
@@ -56,11 +63,15 @@ class CachedDataProvider(DataProvider):
                         close=b['close'],
                         volume=b['volume']
                     )
-                    for b in cached[-limit:]  # Take most recent
+                    for b in cached
                 ]
+                # Apply limit if needed (take most recent bars)
+                if limit and len(bars) > limit:
+                    bars = bars[-limit:]
                 return bars
 
         # Cache miss or insufficient data - fetch from provider
+        # Note: provider doesn't support date range filtering, only limit
         bars = self.provider.history(symbol, tf, limit=limit)
 
         # Store in cache for future use

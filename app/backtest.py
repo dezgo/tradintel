@@ -117,19 +117,16 @@ class Backtester:
         self.equity_curve = []
         self.bars_processed = []
 
-        # Fetch historical bars (Gate.io API limit is ~1000 bars per request)
-        # This gives us:
-        # - 1m bars: ~16 hours of data
-        # - 5m bars: ~3.5 days of data
-        # - 1h bars: ~41 days of data
-        # - 1d bars: ~2.7 years of data
-        all_bars = data_provider.history(symbol, timeframe, limit=1000)
-
-        # Filter by date range if specified
-        if start_ts is not None:
-            all_bars = [b for b in all_bars if b.ts >= start_ts]
-        if end_ts is not None:
-            all_bars = [b for b in all_bars if b.ts <= end_ts]
+        # Fetch historical bars from cache or provider
+        # Pass start_ts and end_ts to get the right date range
+        # The CachedDataProvider will fetch from database with date filters
+        all_bars = data_provider.history(
+            symbol,
+            timeframe,
+            limit=10000,  # Large limit to get all available cached bars
+            start_ts=start_ts,
+            end_ts=end_ts
+        )
 
         if not all_bars:
             return BacktestMetrics()
