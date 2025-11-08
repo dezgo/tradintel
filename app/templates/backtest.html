@@ -104,6 +104,16 @@
     background: transparent;
     border-bottom-color: var(--blue);
   }
+
+  /* Tab content */
+  .tab-content {
+    background: transparent;
+    color: var(--text);
+  }
+  .tab-pane {
+    background: transparent;
+    color: var(--text);
+  }
 </style>
 
 </head>
@@ -489,7 +499,7 @@
         ['Win Rate', `${metrics.win_rate.toFixed(2)}%`],
         ['Profit Factor', metrics.profit_factor.toFixed(2)],
         ['Total Trades', metrics.total_trades],
-        ['Days', metrics.days]
+        ['Days', Math.round(metrics.days)]
       ];
 
       const metrics2 = [
