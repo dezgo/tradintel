@@ -728,20 +728,87 @@
         return;
       }
 
-      container.innerHTML = saved.map(s => `
-        <div class="d-flex align-items-center gap-2">
-          <button class="btn btn-sm btn-outline-light text-start flex-grow-1" onclick='loadSavedConfig(${JSON.stringify(s)})'>
-            <strong>${s.name}</strong><br>
-            <span class="small text-muted">${s.strategy} • ${s.symbol} • ${s.timeframe}</span>
-          </button>
-          <button class="btn btn-sm btn-outline-danger" onclick="deleteSavedStrategy(${s.id})" title="Delete">
-            <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
-              <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
-              <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
-            </svg>
-          </button>
-        </div>
-      `).join('');
+      container.innerHTML = saved.map(s => {
+        const isEvolved = s.strategy === 'GenomeStrategy';
+
+        if (isEvolved) {
+          // Evolved strategies: show badge and direct "Run" button
+          return `
+            <div class="d-flex align-items-center gap-2">
+              <button class="btn btn-sm btn-outline-primary text-start flex-grow-1" onclick='runSavedStrategy(${JSON.stringify(s)})' title="Run backtest with this evolved strategy">
+                <strong>${s.name}</strong>
+                <span class="badge" style="background: rgba(59, 130, 246, 0.15); color: var(--blue); font-size: 0.65rem; margin-left: 4px;">EVOLVED</span><br>
+                <span class="small text-muted">${s.symbol} • ${s.timeframe} • ${s.days || 365} days</span>
+              </button>
+              <button class="btn btn-sm btn-outline-danger" onclick="deleteSavedStrategy(${s.id})" title="Delete">
+                <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+                  <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                </svg>
+              </button>
+            </div>
+          `;
+        } else {
+          // Regular strategies: show normal load button
+          return `
+            <div class="d-flex align-items-center gap-2">
+              <button class="btn btn-sm btn-outline-light text-start flex-grow-1" onclick='loadSavedConfig(${JSON.stringify(s)})'>
+                <strong>${s.name}</strong><br>
+                <span class="small text-muted">${s.strategy} • ${s.symbol} • ${s.timeframe}</span>
+              </button>
+              <button class="btn btn-sm btn-outline-danger" onclick="deleteSavedStrategy(${s.id})" title="Delete">
+                <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+                  <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                </svg>
+              </button>
+            </div>
+          `;
+        }
+      }).join('');
+    }
+
+    async function runSavedStrategy(saved) {
+      // Run a saved strategy directly (used for evolved strategies that can't be edited in the form)
+
+      // Show loading state
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('resultsContainer').style.display = 'none';
+      document.getElementById('loadingState').style.display = 'block';
+
+      const payload = {
+        strategy: saved.strategy,
+        params: saved.params,
+        symbol: saved.symbol,
+        timeframe: saved.timeframe,
+        days: saved.days || 365,
+        initial_capital: saved.initial_capital || 1000,
+        min_notional: saved.min_notional || 100
+      };
+
+      console.log('Running saved strategy:', payload);
+
+      try {
+        const response = await fetch('/backtest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Backtest failed');
+        }
+
+        // Show results
+        displayResults(data);
+      } catch (error) {
+        console.error('Backtest error:', error);
+        document.getElementById('loadingState').style.display = 'none';
+        document.getElementById('emptyState').style.display = 'block';
+        alert('Backtest failed: ' + error.message);
+      }
     }
 
     function loadSavedConfig(saved) {
