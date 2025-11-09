@@ -18,10 +18,18 @@ TF = "1m"
 EXECUTION_MODE = "binance_testnet"  # Change this to switch between paper and testnet
 
 # Capital allocation mode:
-# - 'fixed': Use CAPITAL_PER_BOT for each bot
-# - 'exchange_balance': Fetch and distribute exchange USDT balance evenly
+# - 'fixed': Each bot gets CAPITAL_PER_BOT virtual capital for trading
+#            * Total Equity = number of bots × CAPITAL_PER_BOT
+#            * Exchange Balance shows your actual holdings (valued in USD)
+#            * These are separate - bots trade with virtual capital
+#
+# - 'exchange_balance': Fetch real USDT balance and distribute among bots
+#            * Total Equity = your actual USDT balance distributed among bots
+#            * Bots will trade with real funds from your exchange balance
+#            * More realistic but requires sufficient USDT on exchange
+#
 CAPITAL_MODE = "fixed"  # Change to 'exchange_balance' to use real testnet balances
-CAPITAL_PER_BOT = 1000.0  # Used when CAPITAL_MODE = 'fixed'
+CAPITAL_PER_BOT = 1000.0  # Used when CAPITAL_MODE = 'fixed' (virtual capital per bot)
 
 
 def _get_capital_per_bot(total_bots: int) -> float:
