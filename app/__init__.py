@@ -411,12 +411,37 @@ def create_app() -> Flask:
         new_strategy = None
         strategy_type_name = new_strategy_name
 
-        # Check if it's an evolved strategy (format: "evolved:456")
+        # Check if it's a saved or evolved strategy (format: "saved:123" or "evolved:456")
         if ":" in new_strategy_name:
             strategy_prefix, strategy_id_str = new_strategy_name.split(":", 1)
             strategy_id = int(strategy_id_str)
 
-            if strategy_prefix == "evolved":
+            if strategy_prefix == "saved":
+                # Load saved strategy from database
+                from app.storage import store
+                saved_strat = store.get_saved_backtest(strategy_id)
+                if not saved_strat:
+                    return jsonify({"error": f"Saved strategy {strategy_id} not found"}), 404
+
+                # Reconstruct strategy based on saved config
+                strat_name = saved_strat["strategy"]
+                params = saved_strat["params"]
+
+                if strat_name == "GenomeStrategy":
+                    # It's a genome strategy - reconstruct from params
+                    from app.portfolio import _decode_genome
+                    genome = _decode_genome(params)
+                    new_strategy = GenomeStrategy(genome)
+                elif strat_name in strategy_map:
+                    # It's a legacy strategy with custom params
+                    strategy_class = strategy_map[strat_name][0]
+                    new_strategy = strategy_class(**params)
+                else:
+                    return jsonify({"error": f"Unknown saved strategy type: {strat_name}"}), 400
+
+                strategy_type_name = f"SavedStrategy({strategy_id})"
+
+            elif strategy_prefix == "evolved":
                 # Load evolved strategy from database
                 from app.storage import store
                 evolved_strat = store.get_evolved_strategy(strategy_id)
@@ -484,6 +509,18 @@ def create_app() -> Flask:
         strategies.append({"id": "MeanReversion", "name": "Mean Reversion (Legacy)", "type": "hardcoded"})
         strategies.append({"id": "Breakout", "name": "Breakout (Legacy)", "type": "hardcoded"})
         strategies.append({"id": "TrendFollow", "name": "Trend Follow (Legacy)", "type": "hardcoded"})
+
+        # Add saved strategies (from strategy builder / backtest clones)
+        try:
+            saved_strategies = store.list_saved_backtests()
+            for s in saved_strategies:
+                strategies.append({
+                    "id": f"saved:{s['id']}",
+                    "name": f"📋 {s['name']}",
+                    "type": "saved"
+                })
+        except Exception as ex:
+            print(f"Warning: Could not load saved strategies: {ex}")
 
         # Add evolved strategies (top 20, only profitable ones)
         try:

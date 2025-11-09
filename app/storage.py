@@ -776,6 +776,31 @@ class Storage:
             for r in rows
         ]
 
+    def get_saved_backtest(self, backtest_id: int) -> dict | None:
+        """Get a specific saved backtest configuration by ID."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT id, name, strategy, symbol, timeframe, params_json, initial_capital, min_notional, days, created_ts FROM saved_backtests WHERE id = ?",
+                (int(backtest_id),)
+            )
+            row = cur.fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "id": int(row[0]),
+            "name": row[1],
+            "strategy": row[2],
+            "symbol": row[3],
+            "timeframe": row[4],
+            "params": json.loads(row[5]),
+            "initial_capital": float(row[6]),
+            "min_notional": float(row[7]),
+            "days": int(row[8]),
+            "created_ts": int(row[9]),
+        }
+
     def delete_saved_backtest(self, backtest_id: int) -> bool:
         """Delete a saved backtest configuration. Returns True if deleted."""
         with self._lock:
