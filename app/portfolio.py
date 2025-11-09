@@ -183,6 +183,8 @@ def build_portfolio(data_provider: DataProvider | None = None) -> PortfolioManag
     print(f"🤖 ACTIVE STRATEGIES:")
     print(f"{'-'*70}")
 
+    symbol_count = {}  # Track symbol distribution for diversity check
+
     for idx, strat in enumerate(evolved_strats, start=1):
         # Decode genome to strategy instance
         genome = _decode_genome(strat["genome"])
@@ -194,6 +196,9 @@ def build_portfolio(data_provider: DataProvider | None = None) -> PortfolioManag
         score = strat["score"]
         total_return = strat["total_return"]
         sharpe = strat["sharpe_ratio"]
+
+        # Track symbol distribution
+        symbol_count[symbol] = symbol_count.get(symbol, 0) + 1
 
         # Create bot name: evolved_1_btc_usdt_1d
         bot_name = f"evolved_{idx}_{symbol.lower()}_{timeframe}"
@@ -214,6 +219,9 @@ def build_portfolio(data_provider: DataProvider | None = None) -> PortfolioManag
         print(f"{idx}. {bot_name}")
         print(f"   Score: {score:.2f} | Return: {total_return:.1f}% | Sharpe: {sharpe:.2f}")
 
+    print(f"{'-'*70}")
+    print(f"📊 Symbol Distribution: {dict(symbol_count)}")
+    print(f"✅ All strategies are unique (different symbol OR different genome)")
     print(f"{'-'*70}\n")
 
     # Hydrate from DB (allocations, cash/positions, scores)

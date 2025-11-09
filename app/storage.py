@@ -992,17 +992,43 @@ class Storage:
 
     def get_top_evolved_strategies_for_portfolio(self, num_strategies: int = 5, min_score: float = 0.0) -> list[dict]:
         """
-        Get top N evolved strategies across all symbols for live trading.
+        Get top N UNIQUE evolved strategies across all symbols for live trading.
         Only returns profitable strategies (score > min_score).
         Sorted by score (best first).
 
+        Ensures diversity by deduplicating: only includes strategies with unique (symbol, genome) pairs.
+        This prevents running multiple copies of the same strategy.
+
         Returns: List of dicts with genome, symbol, timeframe, score, etc.
         """
-        return self.list_evolved_strategies(
+        # Fetch more strategies than needed to ensure we find enough unique ones
+        # (3x should be plenty since we're already filtering by min_score)
+        candidates = self.list_evolved_strategies(
             symbol=None,  # All symbols
             min_score=min_score,
-            limit=num_strategies
+            limit=num_strategies * 3
         )
+
+        unique_strategies = []
+        seen_pairs = set()  # Track (symbol, genome_hash) to ensure uniqueness
+
+        for strategy in candidates:
+            # Create a deterministic hash of the genome for comparison
+            genome_str = json.dumps(strategy["genome"], sort_keys=True)
+            genome_hash = hash(genome_str)
+
+            # Key is (symbol, genome_hash) - ensures diversity across symbols AND genomes
+            key = (strategy["symbol"], genome_hash)
+
+            if key not in seen_pairs:
+                seen_pairs.add(key)
+                unique_strategies.append(strategy)
+
+                # Stop once we have enough unique strategies
+                if len(unique_strategies) >= num_strategies:
+                    break
+
+        return unique_strategies
 
     def get_evolved_strategy(self, strategy_id: int) -> dict | None:
         """Get a specific evolved strategy by ID."""
