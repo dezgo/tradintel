@@ -1084,22 +1084,20 @@
 
     async function loadDecisions() {
       try {
-        const res = await fetch('/decisions.json', { cache: "no-store" });
+        // Fetch from database instead of in-memory log (persists across restarts)
+        const res = await fetch('/api/recent-trades', { cache: "no-store" });
         const data = await res.json();
-        const items = data.items || [];
+        const trades = data.items || [];
 
-        // Filter to only show executed trades (skip signals and skip_* entries)
-        const executedTrades = items.filter(d => d.type === 'trade_executed');
+        document.getElementById("decisionsCount").textContent = trades.length;
 
-        document.getElementById("decisionsCount").textContent = executedTrades.length;
-
-        if (executedTrades.length === 0) {
+        if (trades.length === 0) {
           document.getElementById("decisionsContent").innerHTML = '<div class="muted small">No trades executed yet</div>';
           return;
         }
 
         // Show last 10 executed trades
-        const recent = executedTrades.slice(0, 10);
+        const recent = trades.slice(0, 10);
 
         let html = '<div class="table-responsive"><table class="table table-sm table-dark mb-0" style="font-size: 0.85rem;"><thead><tr>';
         html += '<th style="width: 90px;">Time</th>';
@@ -1121,14 +1119,14 @@
           const symbol = (d.symbol || '').replace('_', '/');
 
           // Side badge
-          const sideClass = d.side === 'buy' ? 'badge-up' : 'badge-down';
+          const sideClass = d.side.toLowerCase() === 'buy' ? 'badge-up' : 'badge-down';
           const sideLabel = (d.side || '').toUpperCase();
 
           // Quantity
-          const qty = (d.quantity || 0).toFixed(4);
+          const qty = (d.qty || 0).toFixed(4);
 
           // Price
-          const price = '$' + (d.fill_price || 0).toFixed(2);
+          const price = '$' + (d.price || 0).toFixed(2);
 
           // Fee
           const fee = '$' + (d.fee || 0).toFixed(2);
@@ -1149,15 +1147,15 @@
 
         html += '</tbody></table></div>';
 
-        if (executedTrades.length > 10) {
-          html += `<div class="muted small mt-2 text-center">Showing 10 of ${executedTrades.length} executed trades</div>`;
+        if (trades.length > 10) {
+          html += `<div class="muted small mt-2 text-center">Showing 10 of ${trades.length} executed trades</div>`;
         }
 
         document.getElementById("decisionsContent").innerHTML = html;
 
       } catch (err) {
-        console.error('Error loading decisions:', err);
-        document.getElementById("decisionsContent").innerHTML = '<div class="text-danger small">Error loading decisions</div>';
+        console.error('Error loading trades:', err);
+        document.getElementById("decisionsContent").innerHTML = '<div class="text-danger small">Error loading trades</div>';
       }
     }
 

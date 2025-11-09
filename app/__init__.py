@@ -285,6 +285,27 @@ def create_app() -> Flask:
         # Return most recent first
         return jsonify({"items": list(reversed(decisions))})
 
+    @app.get("/api/recent-trades")
+    def recent_trades():
+        """Return recent executed trades from database (persists across restarts)."""
+        from app.storage import store
+        trades = store.list_trades(limit=50)  # Get last 50 trades
+
+        # Format trades for the UI
+        items = []
+        for trade in trades:
+            items.append({
+                "timestamp": trade["ts"],
+                "symbol": trade["symbol"],
+                "side": trade["side"],
+                "qty": trade["qty"],
+                "price": trade["price"],
+                "fee": trade["fee"],
+                "is_maker": trade["is_maker"]
+            })
+
+        return jsonify({"items": items})
+
     @app.get("/exchange-balance.json")
     def exchange_balance():
         """Return actual exchange account balance (testnet or live)."""
