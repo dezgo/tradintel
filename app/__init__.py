@@ -17,7 +17,18 @@ _optimizer_thread: threading.Thread | None = None
 _evolver_thread: threading.Thread | None = None
 _selector = AutoParamSelector()  # default: refresh every 30m
 _auto_rebalance_enabled = False  # Global flag for automatic strategy rebalancing
-_trading_paused = True  # Global flag to pause all trading (STARTS PAUSED FOR SAFETY)
+
+
+def _get_trading_paused() -> bool:
+    """Get trading paused state from database (works across multiple workers)."""
+    from app.storage import store
+    return store.get_setting("trading_paused", default=True)  # Default to paused for safety
+
+
+def _set_trading_paused(paused: bool) -> None:
+    """Set trading paused state in database (works across multiple workers)."""
+    from app.storage import store
+    store.set_setting("trading_paused", paused)
 
 
 def _ensure_manual_trade_bot():
@@ -634,13 +645,12 @@ def create_app() -> Flask:
         from app.portfolio import EXECUTION_MODE, SYMBOLS
         from app.strategies import MR_GRID, BO_GRID, TF_GRID
         from app.portfolio import _get_capital_per_bot
-        global _trading_paused
 
         if EXECUTION_MODE not in ["paper", "binance_testnet"]:
             return jsonify({"error": "Reset only allowed in paper/testnet mode"}), 403
 
         # Safety check: Require trading to be paused first
-        if not _trading_paused:
+        if not _get_trading_paused():
             return jsonify({
                 "error": "Trading must be paused before reset",
                 "message": "For safety, pause trading or liquidate all positions before resetting.",
@@ -737,8 +747,7 @@ def create_app() -> Flask:
     @login_required
     def pause_trading():
         """Pause all trading. Bots will stop executing trades but keep positions."""
-        global _trading_paused
-        _trading_paused = True
+        _set_trading_paused(True)
         print("\n🛑 TRADING PAUSED - No new trades will be executed\n")
         return jsonify({
             "success": True,
@@ -750,8 +759,7 @@ def create_app() -> Flask:
     @login_required
     def resume_trading():
         """Resume trading after pause."""
-        global _trading_paused
-        _trading_paused = False
+        _set_trading_paused(False)
         print("\n▶️  TRADING RESUMED - Bots will execute trades normally\n")
         return jsonify({
             "success": True,
@@ -770,7 +778,7 @@ def create_app() -> Flask:
         execution_mode = store.get_setting("execution_mode", default="binance_testnet")
 
         return jsonify({
-            "trading_paused": _trading_paused,
+            "trading_paused": _get_trading_paused(),
             "capital_limit_usdt": capital_limit,
             "trading_timeframe": timeframe,
             "num_active_strategies": int(num_strategies),
@@ -898,14 +906,13 @@ def create_app() -> Flask:
         This will sell all crypto positions and convert to USDT.
         """
         from app.portfolio import EXECUTION_MODE
-        global _trading_paused
 
         if EXECUTION_MODE not in ["paper", "binance_testnet"]:
             return jsonify({"error": "Liquidation only allowed in paper/testnet mode"}), 403
 
         try:
             # Pause trading first
-            _trading_paused = True
+            _set_trading_paused(True)
             print("\n🚨 EMERGENCY LIQUIDATION INITIATED 🚨")
             print("   Trading paused - closing all positions\n")
 
