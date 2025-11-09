@@ -164,12 +164,12 @@ class BinanceTestnetExec(ExecutionClient):
 
             # Use direct API call to avoid sapi endpoints
             # POST /api/v3/order to create market order
-            # Format quantity to 8 decimal places (standard for crypto)
+            # Format quantity to 6 decimal places (reasonable for most crypto)
             params = {
                 'symbol': binance_symbol,
                 'side': side.upper(),
                 'type': 'MARKET',
-                'quantity': f'{qty:.8f}'.rstrip('0').rstrip('.'),
+                'quantity': f'{qty:.6f}'.rstrip('0').rstrip('.'),
             }
 
             order = self.exchange.privatePostOrder(params)
@@ -225,14 +225,14 @@ class BinanceTestnetExec(ExecutionClient):
 
             # Use direct API call to avoid sapi endpoints
             # POST /api/v3/order to create limit order
-            # Format quantity and price to 8 decimal places (standard for crypto)
+            # USDT pairs require: price=2 decimals, quantity=6 decimals (conservative)
             params = {
                 'symbol': binance_symbol,
                 'side': side.upper(),
                 'type': 'LIMIT',
                 'timeInForce': 'GTC',  # Good Till Cancel
-                'quantity': f'{qty:.8f}'.rstrip('0').rstrip('.'),
-                'price': f'{limit_price:.8f}'.rstrip('0').rstrip('.'),
+                'quantity': f'{qty:.6f}'.rstrip('0').rstrip('.'),
+                'price': f'{limit_price:.2f}',  # 2 decimals for USDT pairs
             }
 
             order = self.exchange.privatePostOrder(params)
