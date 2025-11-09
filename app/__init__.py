@@ -398,8 +398,9 @@ def create_app() -> Flask:
         if not bot:
             return jsonify({"error": f"Worker {worker_name} not found"}), 404
 
-        # Map strategy names to classes and grids
+        # Map strategy names to classes and grids (old hardcoded strategies)
         from app.strategies import MeanReversion, Breakout, TrendFollow, MR_GRID, BO_GRID, TF_GRID
+        from app.genome_strategy import GenomeStrategy, load_strategy_from_db
 
         strategy_map = {
             "MeanReversion": (MeanReversion, MR_GRID),
@@ -407,20 +408,53 @@ def create_app() -> Flask:
             "TrendFollow": (TrendFollow, TF_GRID),
         }
 
-        if new_strategy_name not in strategy_map:
+        new_strategy = None
+        strategy_type_name = new_strategy_name
+
+        # Check if it's a saved or evolved strategy (format: "saved:123" or "evolved:456")
+        if ":" in new_strategy_name:
+            strategy_prefix, strategy_id_str = new_strategy_name.split(":", 1)
+            strategy_id = int(strategy_id_str)
+
+            if strategy_prefix == "saved":
+                # Load saved strategy from database
+                genome = load_strategy_from_db(strategy_id)
+                if not genome:
+                    return jsonify({"error": f"Saved strategy {strategy_id} not found"}), 404
+                new_strategy = GenomeStrategy(genome)
+                strategy_type_name = f"SavedStrategy({strategy_id})"
+
+            elif strategy_prefix == "evolved":
+                # Load evolved strategy from database
+                from app.storage import store
+                evolved_strat = store.get_evolved_strategy(strategy_id)
+                if not evolved_strat:
+                    return jsonify({"error": f"Evolved strategy {strategy_id} not found"}), 404
+
+                # Reconstruct genome
+                from app.portfolio import _decode_genome
+                genome = _decode_genome(evolved_strat["genome"])
+                new_strategy = GenomeStrategy(genome)
+                strategy_type_name = f"EvolvedStrategy({strategy_id})"
+            else:
+                return jsonify({"error": f"Unknown strategy prefix: {strategy_prefix}"}), 400
+
+        elif new_strategy_name in strategy_map:
+            # Old hardcoded strategy
+            strategy_class, grid = strategy_map[new_strategy_name]
+
+            # Determine which parameter set to use based on bot name suffix
+            # Extract parameter index from bot name (e.g., mr_btc_usdt_1m_p1 -> p1)
+            import re
+            match = re.search(r"_p(\d+)$", worker_name)
+            param_idx = int(match.group(1)) - 1 if match else 0
+            param_idx = min(param_idx, len(grid) - 1)  # clamp to grid size
+
+            # Create new strategy instance
+            new_strategy = strategy_class(**grid[param_idx])
+            strategy_type_name = new_strategy_name
+        else:
             return jsonify({"error": f"Unknown strategy {new_strategy_name}"}), 400
-
-        strategy_class, grid = strategy_map[new_strategy_name]
-
-        # Determine which parameter set to use based on bot name suffix
-        # Extract parameter index from bot name (e.g., mr_btc_usdt_1m_p1 -> p1)
-        import re
-        match = re.search(r"_p(\d+)$", worker_name)
-        param_idx = int(match.group(1)) - 1 if match else 0
-        param_idx = min(param_idx, len(grid) - 1)  # clamp to grid size
-
-        # Create new strategy instance
-        new_strategy = strategy_class(**grid[param_idx])
 
         # Replace the bot's strategy
         bot.strategy = new_strategy
@@ -428,13 +462,13 @@ def create_app() -> Flask:
         # Update the database
         from app.storage import store
         params = new_strategy.to_params() if hasattr(new_strategy, "to_params") else {}
-        store.record_params(bot.name, new_strategy_name, params)
+        store.record_params(bot.name, strategy_type_name, params)
         store.upsert_bot(
             name=bot.name,
             manager=current_manager.name,
             symbol=bot.symbol,
             tf=bot.tf,
-            strategy=new_strategy_name,
+            strategy=strategy_type_name,
             params=params,
             allocation=bot.allocation,
             cash=bot.metrics.cash,
@@ -445,7 +479,44 @@ def create_app() -> Flask:
             trades=bot.metrics.trades,
         )
 
-        return jsonify({"success": True, "worker": worker_name, "new_strategy": new_strategy_name})
+        return jsonify({"success": True, "worker": worker_name, "new_strategy": strategy_type_name})
+
+    @app.get("/api/available-strategies")
+    def get_available_strategies():
+        """Get all available strategies for worker dropdown (saved + evolved + hardcoded)."""
+        from app.storage import store
+
+        strategies = []
+
+        # Add old hardcoded strategies (for backwards compatibility)
+        strategies.append({"id": "MeanReversion", "name": "Mean Reversion (Legacy)", "type": "hardcoded"})
+        strategies.append({"id": "Breakout", "name": "Breakout (Legacy)", "type": "hardcoded"})
+        strategies.append({"id": "TrendFollow", "name": "Trend Follow (Legacy)", "type": "hardcoded"})
+
+        # Add saved strategies
+        saved_strategies = store.list_saved_strategies()
+        for s in saved_strategies:
+            strategies.append({
+                "id": f"saved:{s['id']}",
+                "name": f"📋 {s['name']}",
+                "type": "saved"
+            })
+
+        # Add evolved strategies (top 20, only profitable ones)
+        evolved_strategies = store.list_evolved_strategies(symbol=None, min_score=0.0, limit=20)
+        for e in evolved_strategies:
+            # Create a short preview of the genome
+            genome = e["genome"]
+            indicators = genome.get("indicators", [])
+            indicator_preview = indicators[0] if indicators else "custom"
+
+            strategies.append({
+                "id": f"evolved:{e['id']}",
+                "name": f"🧬 G{e['generation']} {e['symbol']} {indicator_preview.upper()} (score: {e['score']:.1f})",
+                "type": "evolved"
+            })
+
+        return jsonify({"strategies": strategies})
 
     @app.get("/api/auto-rebalance")
     def get_auto_rebalance():
