@@ -56,15 +56,15 @@
         <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Total P&L</div>
         <div class="mono" style="font-size: 2rem; font-weight: 600;" id="kpiTotalPnl">$0</div>
         <div class="small" style="margin-top: 0.5rem; font-size: 0.7rem;">
-          <span class="muted">Realized:</span> <span id="kpiRealizedPnl">$0</span> •
-          <span class="muted">Unrealized:</span> <span id="kpiUnrealizedPnl">$0</span>
+          <span class="muted">Return:</span> <span id="kpiTotalReturn">0%</span> •
+          <span class="muted">Realized:</span> <span id="kpiRealizedPnl">$0</span>
         </div>
       </div>
     </div>
     <div class="col-6 col-md-3">
       <div class="card text-center" style="padding: 1.5rem 1rem;">
-        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Total Return</div>
-        <div class="mono" style="font-size: 2rem; font-weight: 600;" id="kpiTotalReturn">0%</div>
+        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Today's P&L</div>
+        <div class="mono" style="font-size: 2rem; font-weight: 600;" id="kpiTodaysPnl">$0</div>
         <div class="muted small" style="margin-top: 0.5rem; font-size: 0.7rem;">
           <span id="kpiPositions">0</span> positions • <span id="kpiTrades">0</span> trades
         </div>
@@ -334,19 +334,22 @@
       totalPnlEl.textContent = money(totalPnl);
       totalPnlEl.style.color = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
 
-      // Realized & Unrealized P&L
-      const realizedPnl = metrics.realized_pnl || 0;
-      const unrealizedPnl = metrics.unrealized_pnl || 0;
-      document.getElementById("kpiRealizedPnl").textContent = money(realizedPnl);
-      document.getElementById("kpiRealizedPnl").style.color = realizedPnl >= 0 ? 'var(--green)' : 'var(--red)';
-      document.getElementById("kpiUnrealizedPnl").textContent = money(unrealizedPnl);
-      document.getElementById("kpiUnrealizedPnl").style.color = unrealizedPnl >= 0 ? 'var(--green)' : 'var(--red)';
-
-      // Total Return % with color coding
+      // Total Return % with color coding (smaller, in Total P&L card)
       const returnPct = metrics.total_return_pct || 0;
       const returnEl = document.getElementById("kpiTotalReturn");
       returnEl.textContent = (returnPct >= 0 ? '+' : '') + returnPct.toFixed(2) + '%';
       returnEl.style.color = returnPct >= 0 ? 'var(--green)' : 'var(--red)';
+
+      // Realized P&L (in Total P&L card)
+      const realizedPnl = metrics.realized_pnl || 0;
+      document.getElementById("kpiRealizedPnl").textContent = money(realizedPnl);
+      document.getElementById("kpiRealizedPnl").style.color = realizedPnl >= 0 ? 'var(--green)' : 'var(--red)';
+
+      // Today's P&L with color coding
+      const todaysPnl = metrics.todays_pnl || 0;
+      const todaysPnlEl = document.getElementById("kpiTodaysPnl");
+      todaysPnlEl.textContent = money(todaysPnl);
+      todaysPnlEl.style.color = todaysPnl >= 0 ? 'var(--green)' : 'var(--red)';
 
       // Positions & Trades
       document.getElementById("kpiPositions").textContent = openPositions.length;
