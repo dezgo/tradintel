@@ -244,6 +244,14 @@ def create_app() -> Flask:
         stats = store.fee_statistics()
         return jsonify(stats)
 
+    @app.get("/decisions.json")
+    def trading_decisions():
+        """Return recent trading decisions for monitoring."""
+        from app.bots import get_decision_log
+        decisions = get_decision_log()
+        # Return most recent first
+        return jsonify({"items": list(reversed(decisions))})
+
     @app.get("/exchange-balance.json")
     def exchange_balance():
         """Return actual exchange account balance (testnet or live)."""
@@ -408,7 +416,9 @@ def create_app() -> Flask:
         Only use this in testnet/paper trading!
         """
         from app.storage import store
-        from app.portfolio import EXECUTION_MODE
+        from app.portfolio import EXECUTION_MODE, SYMBOLS
+        from app.strategies import MR_GRID, BO_GRID, TF_GRID
+        from app.portfolio import _get_capital_per_bot
 
         if EXECUTION_MODE not in ["paper", "binance_testnet"]:
             return jsonify({"error": "Reset only allowed in paper/testnet mode"}), 403
@@ -420,14 +430,19 @@ def create_app() -> Flask:
                 store._conn.execute("DELETE FROM equity_history")
                 store._conn.commit()
 
+            # Recalculate initial capital allocation (same as build_portfolio does)
+            total_bots = len(SYMBOLS) * (len(MR_GRID) + len(BO_GRID) + len(TF_GRID))
+            initial_capital = _get_capital_per_bot(total_bots)
+
             # Reset all bots to initial state
             for manager in _pm.managers:
                 for bot in manager.bots:
-                    # Reset metrics to initial allocation
-                    bot.metrics.cash = bot.allocation
+                    # Reset both allocation AND metrics to fresh initial capital
+                    bot.allocation = initial_capital
+                    bot.metrics.cash = initial_capital
                     bot.metrics.pos_qty = 0.0
                     bot.metrics.avg_price = 0.0
-                    bot.metrics.equity = bot.allocation
+                    bot.metrics.equity = initial_capital
                     bot.metrics.cum_pnl = 0.0
                     bot.metrics.trades = 0
                     bot.metrics.score = 0.0
@@ -450,11 +465,15 @@ def create_app() -> Flask:
                         trades=bot.metrics.trades,
                     )
 
+            total_equity = total_bots * initial_capital
+
             return jsonify({
                 "success": True,
                 "message": "All trading state has been reset",
                 "trades_cleared": True,
-                "bots_reset": sum(len(m.bots) for m in _pm.managers)
+                "bots_reset": total_bots,
+                "capital_per_bot": initial_capital,
+                "total_equity": total_equity
             })
 
         except Exception as e:
