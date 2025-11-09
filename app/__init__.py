@@ -16,7 +16,6 @@ _runner_thread: threading.Thread | None = None
 _optimizer_thread: threading.Thread | None = None
 _evolver_thread: threading.Thread | None = None
 _selector = AutoParamSelector()  # default: refresh every 30m
-_auto_rebalance_enabled = False  # Global flag for automatic strategy rebalancing
 
 
 def _get_trading_paused() -> bool:
@@ -29,6 +28,18 @@ def _set_trading_paused(paused: bool) -> None:
     """Set trading paused state in database (works across multiple workers)."""
     from app.storage import store
     store.set_setting("trading_paused", paused)
+
+
+def _get_auto_rebalance_enabled() -> bool:
+    """Get auto-rebalance enabled state from database (works across multiple workers)."""
+    from app.storage import store
+    return store.get_setting("auto_rebalance_enabled", default=False)
+
+
+def _set_auto_rebalance_enabled(enabled: bool) -> None:
+    """Set auto-rebalance enabled state in database (works across multiple workers)."""
+    from app.storage import store
+    store.set_setting("auto_rebalance_enabled", enabled)
 
 
 def _ensure_manual_trade_bot():
@@ -175,9 +186,8 @@ def create_app() -> Flask:
                         _selector.maybe_refresh(_pm, data, TF)
 
                     # Auto-rebalance if enabled
-                    global _auto_rebalance_enabled
                     rebalance_counter += 1
-                    if _auto_rebalance_enabled and rebalance_counter >= REBALANCE_INTERVAL:
+                    if _get_auto_rebalance_enabled() and rebalance_counter >= REBALANCE_INTERVAL:
                         rebalance_counter = 0
                         try:
                             # Calculate strategy performance
@@ -618,18 +628,16 @@ def create_app() -> Flask:
     @login_required
     def get_auto_rebalance():
         """Get the current auto-rebalance setting."""
-        global _auto_rebalance_enabled
-        return jsonify({"enabled": _auto_rebalance_enabled})
+        return jsonify({"enabled": _get_auto_rebalance_enabled()})
 
     @app.post("/api/auto-rebalance")
     @login_required
     def set_auto_rebalance():
         """Enable or disable automatic strategy rebalancing."""
-        global _auto_rebalance_enabled
         data = request.get_json()
         enabled = data.get("enabled", False)
-        _auto_rebalance_enabled = bool(enabled)
-        return jsonify({"enabled": _auto_rebalance_enabled, "message": f"Auto-rebalance {'enabled' if _auto_rebalance_enabled else 'disabled'}"})
+        _set_auto_rebalance_enabled(bool(enabled))
+        return jsonify({"enabled": enabled, "message": f"Auto-rebalance {'enabled' if enabled else 'disabled'}"})
 
     @app.post("/api/reset-for-testing")
     @login_required
