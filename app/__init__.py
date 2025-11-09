@@ -400,7 +400,7 @@ def create_app() -> Flask:
 
         # Map strategy names to classes and grids (old hardcoded strategies)
         from app.strategies import MeanReversion, Breakout, TrendFollow, MR_GRID, BO_GRID, TF_GRID
-        from app.genome_strategy import GenomeStrategy, load_strategy_from_db
+        from app.strategy_genome import GenomeStrategy
 
         strategy_map = {
             "MeanReversion": (MeanReversion, MR_GRID),
@@ -411,20 +411,12 @@ def create_app() -> Flask:
         new_strategy = None
         strategy_type_name = new_strategy_name
 
-        # Check if it's a saved or evolved strategy (format: "saved:123" or "evolved:456")
+        # Check if it's an evolved strategy (format: "evolved:456")
         if ":" in new_strategy_name:
             strategy_prefix, strategy_id_str = new_strategy_name.split(":", 1)
             strategy_id = int(strategy_id_str)
 
-            if strategy_prefix == "saved":
-                # Load saved strategy from database
-                genome = load_strategy_from_db(strategy_id)
-                if not genome:
-                    return jsonify({"error": f"Saved strategy {strategy_id} not found"}), 404
-                new_strategy = GenomeStrategy(genome)
-                strategy_type_name = f"SavedStrategy({strategy_id})"
-
-            elif strategy_prefix == "evolved":
+            if strategy_prefix == "evolved":
                 # Load evolved strategy from database
                 from app.storage import store
                 evolved_strat = store.get_evolved_strategy(strategy_id)
@@ -483,7 +475,7 @@ def create_app() -> Flask:
 
     @app.get("/api/available-strategies")
     def get_available_strategies():
-        """Get all available strategies for worker dropdown (saved + evolved + hardcoded)."""
+        """Get all available strategies for worker dropdown (evolved + hardcoded)."""
         from app.storage import store
 
         strategies = []
@@ -493,28 +485,22 @@ def create_app() -> Flask:
         strategies.append({"id": "Breakout", "name": "Breakout (Legacy)", "type": "hardcoded"})
         strategies.append({"id": "TrendFollow", "name": "Trend Follow (Legacy)", "type": "hardcoded"})
 
-        # Add saved strategies
-        saved_strategies = store.list_saved_strategies()
-        for s in saved_strategies:
-            strategies.append({
-                "id": f"saved:{s['id']}",
-                "name": f"📋 {s['name']}",
-                "type": "saved"
-            })
-
         # Add evolved strategies (top 20, only profitable ones)
-        evolved_strategies = store.list_evolved_strategies(symbol=None, min_score=0.0, limit=20)
-        for e in evolved_strategies:
-            # Create a short preview of the genome
-            genome = e["genome"]
-            indicators = genome.get("indicators", [])
-            indicator_preview = indicators[0] if indicators else "custom"
+        try:
+            evolved_strategies = store.list_evolved_strategies(symbol=None, min_score=0.0, limit=20)
+            for e in evolved_strategies:
+                # Create a short preview of the genome
+                genome = e["genome"]
+                indicators = genome.get("indicators", [])
+                indicator_preview = indicators[0] if indicators else "custom"
 
-            strategies.append({
-                "id": f"evolved:{e['id']}",
-                "name": f"🧬 G{e['generation']} {e['symbol']} {indicator_preview.upper()} (score: {e['score']:.1f})",
-                "type": "evolved"
-            })
+                strategies.append({
+                    "id": f"evolved:{e['id']}",
+                    "name": f"🧬 G{e['generation']} {e['symbol']} {indicator_preview.upper()} (score: {e['score']:.1f})",
+                    "type": "evolved"
+                })
+        except Exception as ex:
+            print(f"Warning: Could not load evolved strategies: {ex}")
 
         return jsonify({"strategies": strategies})
 
