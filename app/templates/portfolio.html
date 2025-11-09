@@ -86,6 +86,7 @@
         <div class="d-flex align-items-center gap-2">
           <h2 class="h6 mb-0">Trading Controls</h2>
           <span class="badge" id="tradingStatusBadge" style="font-size: 0.7rem;">LOADING</span>
+          <span class="badge badge-info" id="exchangeModeBadge" style="font-size: 0.7rem; background: #4a5568; color: #e2e8f0;">LOADING</span>
         </div>
         <div class="d-flex gap-2">
           <button class="btn btn-sm btn-warning" id="pauseBtn" onclick="pauseTrading()">⏸ Pause Trading</button>
@@ -107,7 +108,7 @@
             <button class="btn btn-sm btn-outline-secondary" onclick="clearCapitalLimit()">Clear</button>
           </div>
         </div>
-        <small class="text-muted d-block mt-2" style="font-size: 0.8rem;">
+        <small class="d-block mt-2" style="font-size: 0.8rem; color: #aaa;">
           <strong>⚠️ Restart required after changing capital limit.</strong> Limits how much USDT is allocated for trading (e.g., $5k out of $100k balance).
         </small>
       </div>
@@ -133,7 +134,7 @@
             <button class="btn btn-sm btn-primary" onclick="setTimeframe()">Set Timeframe</button>
           </div>
         </div>
-        <small class="text-danger d-block mt-2" style="font-size: 0.8rem;">
+        <small class="d-block mt-2" style="font-size: 0.8rem; color: #ff6b6b;">
           <strong>🚨 CRITICAL: Restart required after changing timeframe.</strong><br>
           Your strategies were optimized on a specific timeframe. Using a different timeframe will result in poor performance!<br>
           Default is 1d (daily) to match optimization/evolution. Only change if you've re-optimized on the new timeframe.
@@ -152,7 +153,7 @@
             <button class="btn btn-sm btn-primary" onclick="setNumStrategies()">Set Strategies</button>
           </div>
         </div>
-        <small class="text-muted d-block mt-2" style="font-size: 0.8rem;">
+        <small class="d-block mt-2" style="font-size: 0.8rem; color: #aaa;">
           <strong>⚠️ Restart required after changing strategy count.</strong>
           Portfolio will run the top N evolved strategies from genetic algorithm (sorted by performance score).
           Only profitable strategies (score > 0) are used.
@@ -1133,16 +1134,31 @@
         const res = await fetch('/exchange-balance.json', { cache: "no-store" });
         const data = await res.json();
 
-        // Update execution mode badge
+        // Update execution mode badge (in Exchange Balance section)
         const modeElement = document.getElementById("executionMode");
         modeElement.textContent = data.mode.toUpperCase();
 
+        // Update exchange mode badge (in Trading Controls header)
+        const exchangeBadge = document.getElementById("exchangeModeBadge");
         if (data.mode === "paper") {
           modeElement.className = "badge badge-down";
+          exchangeBadge.textContent = "📝 Paper Trading";
+          exchangeBadge.style.background = "#6b7280";
+          exchangeBadge.style.color = "#e2e8f0";
           document.getElementById("exchangeBalanceCard").style.display = "none";
           return;
-        } else {
+        } else if (data.mode === "binance_testnet") {
           modeElement.className = "badge badge-up";
+          exchangeBadge.textContent = "🧪 Binance Testnet";
+          exchangeBadge.style.background = "#f59e0b";
+          exchangeBadge.style.color = "#1f2937";
+          document.getElementById("exchangeBalanceCard").style.display = "block";
+        } else {
+          // Live mode (future)
+          modeElement.className = "badge badge-up";
+          exchangeBadge.textContent = "🔴 Binance LIVE";
+          exchangeBadge.style.background = "#ef4444";
+          exchangeBadge.style.color = "#ffffff";
           document.getElementById("exchangeBalanceCard").style.display = "block";
         }
 
