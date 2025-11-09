@@ -159,17 +159,28 @@ class BinanceTestnetExec(ExecutionClient):
     ) -> Dict:
         """Market order on testnet - always taker fees."""
         try:
-            # Convert symbol format: BTC_USDT -> BTC/USDT
-            ccxt_symbol = symbol.replace('_', '/')
+            # Convert symbol format: BTC_USDT -> BTCUSDT (Binance API format)
+            binance_symbol = symbol.replace('_', '')
 
-            # Place market order
-            order = self.exchange.create_market_order(ccxt_symbol, side, qty)
+            # Use direct API call to avoid sapi endpoints
+            # POST /api/v3/order to create market order
+            params = {
+                'symbol': binance_symbol,
+                'side': side.upper(),
+                'type': 'MARKET',
+                'quantity': self.exchange.amount_to_precision(binance_symbol, qty),
+            }
+
+            order = self.exchange.privatePostOrder(params)
 
             # Extract fill info
-            filled_qty = float(order.get('filled', qty))
-            avg_price = float(order.get('average', price_hint or 0))
-            fee_info = order.get('fee', {})
-            fee = float(fee_info.get('cost', 0))
+            filled_qty = float(order.get('executedQty', qty))
+            cumm_quote = float(order.get('cummulativeQuoteQty', 0))
+            avg_price = cumm_quote / filled_qty if filled_qty > 0 else (price_hint or 0)
+
+            # Market orders are always taker - estimate 0.1% fee
+            notional = filled_qty * avg_price
+            fee = notional * 0.001
 
             # Record trade
             store.record_trade(
@@ -183,14 +194,14 @@ class BinanceTestnetExec(ExecutionClient):
             )
 
             return {
-                "status": order.get('status', 'filled'),
+                "status": "filled",
                 "symbol": symbol,
                 "side": side,
                 "qty": filled_qty,
                 "price": avg_price,
                 "is_maker": False,
                 "fee": fee,
-                "fee_rate": fee / (filled_qty * avg_price) if filled_qty * avg_price > 0 else 0
+                "fee_rate": fee / notional if notional > 0 else 0
             }
 
         except Exception as e:
@@ -208,28 +219,48 @@ class BinanceTestnetExec(ExecutionClient):
     ) -> Dict:
         """Real limit order on Binance testnet with timeout."""
         try:
-            # Convert symbol format
-            ccxt_symbol = symbol.replace('_', '/')
+            # Convert symbol format: BTC_USDT -> BTCUSDT (Binance API format)
+            binance_symbol = symbol.replace('_', '')
 
-            # Place limit order
-            order = self.exchange.create_limit_order(ccxt_symbol, side, qty, limit_price)
-            order_id = order['id']
+            # Use direct API call to avoid sapi endpoints
+            # POST /api/v3/order to create limit order
+            params = {
+                'symbol': binance_symbol,
+                'side': side.upper(),
+                'type': 'LIMIT',
+                'timeInForce': 'GTC',  # Good Till Cancel
+                'quantity': self.exchange.amount_to_precision(binance_symbol, qty),
+                'price': self.exchange.price_to_precision(binance_symbol, limit_price),
+            }
+
+            order = self.exchange.privatePostOrder(params)
+            order_id = str(order['orderId'])
 
             # Wait for fill with timeout
             start_time = time.time()
             while time.time() - start_time < timeout:
-                order = self.exchange.fetch_order(order_id, ccxt_symbol)
-                status = order.get('status', '')
+                # GET /api/v3/order to check status
+                order_status = self.exchange.privateGetOrder({
+                    'symbol': binance_symbol,
+                    'orderId': order_id
+                })
 
-                if status == 'closed':  # Filled
-                    filled_qty = float(order.get('filled', qty))
-                    avg_price = float(order.get('average', limit_price))
-                    fee_info = order.get('fee', {})
-                    fee = float(fee_info.get('cost', 0))
+                status = order_status.get('status', '')
 
-                    # Determine if maker or taker
-                    # On Binance, if order was on the book before fill, it's maker
-                    is_maker = order.get('maker', True)  # Default assume maker
+                if status == 'FILLED':
+                    # Parse fill information
+                    filled_qty = float(order_status.get('executedQty', qty))
+                    # Calculate average price from cummulative quote qty
+                    cumm_quote = float(order_status.get('cummulativeQuoteQty', 0))
+                    avg_price = cumm_quote / filled_qty if filled_qty > 0 else limit_price
+
+                    # Calculate fee (Binance includes this in fills array, but for simplicity use estimated fee)
+                    # Testnet might not have accurate fee info, so estimate
+                    notional = filled_qty * avg_price
+                    fee = notional * 0.001  # 0.1% estimate for taker, 0% for maker
+
+                    # Check if maker order (if price is different from limit, it was taker)
+                    is_maker = abs(avg_price - limit_price) < (limit_price * 0.0001)  # Within 0.01%
 
                     # Record trade
                     store.record_trade(
@@ -250,17 +281,20 @@ class BinanceTestnetExec(ExecutionClient):
                         "side": side,
                         "is_maker": is_maker,
                         "fee": fee,
-                        "fee_rate": fee / (filled_qty * avg_price) if filled_qty * avg_price > 0 else 0
+                        "fee_rate": fee / notional if notional > 0 else 0
                     }
 
-                elif status in ['canceled', 'expired']:
+                elif status in ['CANCELED', 'EXPIRED', 'REJECTED']:
                     return {"status": "cancelled", "filled_qty": 0}
 
                 time.sleep(2)  # Poll every 2 seconds
 
             # Timeout - cancel order
             try:
-                self.exchange.cancel_order(order_id, ccxt_symbol)
+                self.exchange.privateDeleteOrder({
+                    'symbol': binance_symbol,
+                    'orderId': order_id
+                })
             except:
                 pass  # Already filled or cancelled
 
