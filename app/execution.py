@@ -162,12 +162,14 @@ class BinanceTestnetExec(ExecutionClient):
         - BTC_USDT: 0.00001 (5 decimals)
         - ETH_USDT: 0.0001 (4 decimals)
         - SOL_USDT: 0.01 (2 decimals)
+        - USDC_USDT: 0.1 (1 decimal) - stablecoin pair
         """
         # Define step sizes for each symbol (quantity precision)
         step_sizes = {
             'BTC_USDT': 0.00001,  # 5 decimals
             'ETH_USDT': 0.0001,   # 4 decimals
             'SOL_USDT': 0.01,     # 2 decimals
+            'USDC_USDT': 0.1,     # 1 decimal - stablecoin conversion
         }
 
         step = step_sizes.get(symbol, 0.00001)  # default to 5 decimals
@@ -190,6 +192,18 @@ class BinanceTestnetExec(ExecutionClient):
             return f'{rounded:.5f}'.rstrip('0').rstrip('.')
         else:
             return f'{rounded:.8f}'.rstrip('0').rstrip('.')
+
+    def _format_price(self, symbol: str, price: float) -> str:
+        """
+        Format price according to Binance PRICE_FILTER requirements.
+
+        - Most USDT pairs: 2 decimals (e.g., 42567.23)
+        - USDC_USDT: 4 decimals for better precision (e.g., 0.9998)
+        """
+        if symbol == 'USDC_USDT':
+            return f'{price:.4f}'  # Higher precision for stablecoin pair
+        else:
+            return f'{price:.2f}'  # Standard 2 decimals for USDT pairs
 
     def paper_order(
         self, symbol: str, side: str, qty: float, price_hint: Optional[float] = None
@@ -262,14 +276,14 @@ class BinanceTestnetExec(ExecutionClient):
 
             # Use direct API call to avoid sapi endpoints
             # POST /api/v3/order to create limit order
-            # Format quantity according to symbol's LOT_SIZE, price to 2 decimals (USDT pairs)
+            # Format quantity and price according to symbol requirements
             params = {
                 'symbol': binance_symbol,
                 'side': side.upper(),
                 'type': 'LIMIT',
                 'timeInForce': 'GTC',  # Good Till Cancel
                 'quantity': self._format_quantity(symbol, qty),
-                'price': f'{limit_price:.2f}',  # 2 decimals for USDT pairs
+                'price': self._format_price(symbol, limit_price),
             }
 
             order = self.exchange.privatePostOrder(params)
