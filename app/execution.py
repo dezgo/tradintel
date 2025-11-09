@@ -292,11 +292,64 @@ class BinanceTestnetExec(ExecutionClient):
             # Wait for fill with timeout
             start_time = time.time()
             while time.time() - start_time < timeout:
-                # GET /api/v3/order to check status
-                order_status = self.exchange.privateGetOrder({
-                    'symbol': binance_symbol,
-                    'orderId': order_id
-                })
+                try:
+                    # GET /api/v3/order to check status
+                    order_status = self.exchange.privateGetOrder({
+                        'symbol': binance_symbol,
+                        'orderId': order_id
+                    })
+
+                    status = order_status.get('status', '')
+
+                except Exception as order_err:
+                    # Error -2013 "Order does not exist" likely means it filled and was removed
+                    if '-2013' in str(order_err) or 'does not exist' in str(order_err).lower():
+                        # Order was likely filled and removed from active orders
+                        # Try to get the fill from recent trades
+                        try:
+                            trades = self.exchange.privateGetMyTrades({
+                                'symbol': binance_symbol,
+                                'limit': 10
+                            })
+                            # Find our order in recent trades
+                            our_trades = [t for t in trades if str(t.get('orderId')) == order_id]
+                            if our_trades:
+                                # Order was filled! Calculate from trades
+                                filled_qty = sum(float(t.get('qty', 0)) for t in our_trades)
+                                total_quote = sum(float(t.get('quoteQty', 0)) for t in our_trades)
+                                avg_price = total_quote / filled_qty if filled_qty > 0 else limit_price
+
+                                # Check if maker (limit orders that rest on book are maker)
+                                is_maker = any(t.get('isMaker', False) for t in our_trades)
+
+                                # Calculate fee
+                                total_fee = sum(float(t.get('commission', 0)) for t in our_trades)
+
+                                store.record_trade(
+                                    self.bot_name,
+                                    symbol,
+                                    side,
+                                    filled_qty,
+                                    avg_price,
+                                    fee=total_fee,
+                                    is_maker=is_maker
+                                )
+
+                                return {
+                                    "status": "filled",
+                                    "filled_qty": filled_qty,
+                                    "avg_price": avg_price,
+                                    "symbol": symbol,
+                                    "side": side,
+                                    "is_maker": is_maker,
+                                    "fee": total_fee,
+                                    "fee_rate": total_fee / total_quote if total_quote > 0 else 0
+                                }
+                        except:
+                            pass  # Couldn't find in trades either
+
+                    # Unknown error, re-raise
+                    raise order_err
 
                 status = order_status.get('status', '')
 
