@@ -38,28 +38,37 @@ def _get_capital_per_bot(total_bots: int) -> float:
         return CAPITAL_PER_BOT
 
     elif CAPITAL_MODE == "exchange_balance":
-        # Fetch USDT balance from exchange
+        # Fetch stablecoin balance from exchange (USDT, USDC, BUSD)
         try:
             if EXECUTION_MODE == "binance_testnet":
                 client = BinanceTestnetExec("balance_fetcher")
                 response = client.exchange.privateGetAccount()
                 balances = response.get('balances', [])
 
-                # Find USDT balance
-                usdt_balance = 0.0
-                for bal in balances:
-                    if bal['asset'] == 'USDT':
-                        usdt_balance = float(bal.get('free', 0))
-                        break
+                # Sum all stablecoin balances (USDT, USDC, BUSD)
+                stablecoins = ['USDT', 'USDC', 'BUSD']
+                total_stable_balance = 0.0
+                stable_breakdown = {}
 
-                if usdt_balance > 0:
+                for bal in balances:
+                    if bal['asset'] in stablecoins:
+                        amount = float(bal.get('free', 0))
+                        if amount > 0:
+                            stable_breakdown[bal['asset']] = amount
+                            total_stable_balance += amount
+
+                if total_stable_balance > 0:
                     # Distribute evenly among all bots, leaving 10% as reserve
-                    usable = usdt_balance * 0.9
+                    usable = total_stable_balance * 0.9
                     per_bot = usable / total_bots
-                    print(f"Exchange balance mode: Found {usdt_balance:.2f} USDT, allocating {per_bot:.2f} per bot")
+
+                    # Log breakdown
+                    breakdown_str = ", ".join([f"{asset}: ${amt:.2f}" for asset, amt in stable_breakdown.items()])
+                    print(f"Exchange balance mode: Found ${total_stable_balance:.2f} in stablecoins ({breakdown_str})")
+                    print(f"Allocating ${per_bot:.2f} per bot (90% of total / {total_bots} bots)")
                     return per_bot
                 else:
-                    print(f"Warning: No USDT balance found, falling back to {CAPITAL_PER_BOT}")
+                    print(f"Warning: No stablecoin balance found (USDT/USDC/BUSD), falling back to ${CAPITAL_PER_BOT}")
                     return CAPITAL_PER_BOT
 
             else:
@@ -67,7 +76,7 @@ def _get_capital_per_bot(total_bots: int) -> float:
                 return CAPITAL_PER_BOT
 
         except Exception as e:
-            print(f"Error fetching exchange balance: {e}, falling back to {CAPITAL_PER_BOT}")
+            print(f"Error fetching exchange balance: {e}, falling back to ${CAPITAL_PER_BOT}")
             return CAPITAL_PER_BOT
 
     else:
