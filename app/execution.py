@@ -154,6 +154,43 @@ class BinanceTestnetExec(ExecutionClient):
         for key in ['sapi', 'fapi', 'dapi', 'vapi', 'eapi']:
             self.exchange.urls.pop(key, None)
 
+    def _format_quantity(self, symbol: str, qty: float) -> str:
+        """
+        Format quantity according to Binance LOT_SIZE filter requirements.
+
+        Each symbol has specific step size requirements:
+        - BTC_USDT: 0.00001 (5 decimals)
+        - ETH_USDT: 0.0001 (4 decimals)
+        - SOL_USDT: 0.01 (2 decimals)
+        """
+        # Define step sizes for each symbol (quantity precision)
+        step_sizes = {
+            'BTC_USDT': 0.00001,  # 5 decimals
+            'ETH_USDT': 0.0001,   # 4 decimals
+            'SOL_USDT': 0.01,     # 2 decimals
+        }
+
+        step = step_sizes.get(symbol, 0.00001)  # default to 5 decimals
+
+        # Round to step size
+        rounded = round(qty / step) * step
+
+        # Format to appropriate decimal places (no trailing zeros for Binance)
+        if step >= 1:
+            return f'{rounded:.0f}'
+        elif step >= 0.1:
+            return f'{rounded:.1f}'.rstrip('0').rstrip('.')
+        elif step >= 0.01:
+            return f'{rounded:.2f}'.rstrip('0').rstrip('.')
+        elif step >= 0.001:
+            return f'{rounded:.3f}'.rstrip('0').rstrip('.')
+        elif step >= 0.0001:
+            return f'{rounded:.4f}'.rstrip('0').rstrip('.')
+        elif step >= 0.00001:
+            return f'{rounded:.5f}'.rstrip('0').rstrip('.')
+        else:
+            return f'{rounded:.8f}'.rstrip('0').rstrip('.')
+
     def paper_order(
         self, symbol: str, side: str, qty: float, price_hint: Optional[float] = None
     ) -> Dict:
@@ -164,12 +201,12 @@ class BinanceTestnetExec(ExecutionClient):
 
             # Use direct API call to avoid sapi endpoints
             # POST /api/v3/order to create market order
-            # Format quantity to 6 decimal places (reasonable for most crypto)
+            # Format quantity according to symbol's step size
             params = {
                 'symbol': binance_symbol,
                 'side': side.upper(),
                 'type': 'MARKET',
-                'quantity': f'{qty:.6f}'.rstrip('0').rstrip('.'),
+                'quantity': self._format_quantity(symbol, qty),
             }
 
             order = self.exchange.privatePostOrder(params)
@@ -225,13 +262,13 @@ class BinanceTestnetExec(ExecutionClient):
 
             # Use direct API call to avoid sapi endpoints
             # POST /api/v3/order to create limit order
-            # USDT pairs require: price=2 decimals, quantity=6 decimals (conservative)
+            # Format quantity according to symbol's LOT_SIZE, price to 2 decimals (USDT pairs)
             params = {
                 'symbol': binance_symbol,
                 'side': side.upper(),
                 'type': 'LIMIT',
                 'timeInForce': 'GTC',  # Good Till Cancel
-                'quantity': f'{qty:.6f}'.rstrip('0').rstrip('.'),
+                'quantity': self._format_quantity(symbol, qty),
                 'price': f'{limit_price:.2f}',  # 2 decimals for USDT pairs
             }
 
