@@ -427,11 +427,15 @@ def create_app() -> Flask:
             return jsonify({"error": "Reset only allowed in paper/testnet mode"}), 403
 
         try:
-            # Clear all trades
+            # Clear all trades and decision log
             with store._lock:
                 store._conn.execute("DELETE FROM trades")
                 store._conn.execute("DELETE FROM equity_history")
                 store._conn.commit()
+
+            # Clear decision log
+            from app.bots import clear_decision_log
+            clear_decision_log()
 
             # Recalculate initial capital allocation (same as build_portfolio does)
             total_bots = len(SYMBOLS) * (len(MR_GRID) + len(BO_GRID) + len(TF_GRID))
@@ -481,6 +485,91 @@ def create_app() -> Flask:
 
         except Exception as e:
             return jsonify({"error": str(e)}), 500
+
+    @app.post("/api/manual-trade")
+    def manual_trade():
+        """
+        Execute a manual trade on the exchange.
+
+        Request body:
+        {
+            "symbol": "BTC_USDT",
+            "side": "buy" or "sell",
+            "quantity": 0.001,  // amount in crypto
+            "order_type": "market" or "limit",
+            "limit_price": 42000.50  // required if order_type is "limit"
+        }
+        """
+        from app.portfolio import EXECUTION_MODE
+        from app.execution import BinanceTestnetExec, PaperExec
+
+        if EXECUTION_MODE not in ["paper", "binance_testnet"]:
+            return jsonify({"error": "Manual trading only allowed in paper/testnet mode"}), 403
+
+        data = request.get_json()
+
+        # Validate required fields
+        symbol = data.get("symbol")
+        side = data.get("side", "").lower()
+        quantity = data.get("quantity")
+        order_type = data.get("order_type", "market").lower()
+
+        if not symbol or symbol not in ["BTC_USDT", "ETH_USDT", "SOL_USDT"]:
+            return jsonify({"error": "Invalid symbol. Must be BTC_USDT, ETH_USDT, or SOL_USDT"}), 400
+
+        if side not in ["buy", "sell"]:
+            return jsonify({"error": "Invalid side. Must be 'buy' or 'sell'"}), 400
+
+        try:
+            quantity = float(quantity)
+            if quantity <= 0:
+                return jsonify({"error": "Quantity must be positive"}), 400
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid quantity"}), 400
+
+        try:
+            # Get execution client
+            if EXECUTION_MODE == "binance_testnet":
+                client = BinanceTestnetExec("manual_trade")
+            else:
+                client = PaperExec("manual_trade")
+
+            # Execute trade based on order type
+            if order_type == "market":
+                # For market orders, we need a price hint
+                # Fetch current price first
+                binance_symbol = symbol.replace('_', '')
+                price_data = client.exchange.publicGetTickerPrice({'symbol': binance_symbol})
+                current_price = float(price_data['price'])
+
+                result = client.paper_order(symbol, side, quantity, price_hint=current_price)
+
+            elif order_type == "limit":
+                limit_price = data.get("limit_price")
+                if limit_price is None:
+                    return jsonify({"error": "limit_price required for limit orders"}), 400
+
+                try:
+                    limit_price = float(limit_price)
+                    if limit_price <= 0:
+                        return jsonify({"error": "limit_price must be positive"}), 400
+                except (TypeError, ValueError):
+                    return jsonify({"error": "Invalid limit_price"}), 400
+
+                result = client.limit_order(symbol, side, quantity, limit_price, timeout=60.0)
+
+            else:
+                return jsonify({"error": "Invalid order_type. Must be 'market' or 'limit'"}), 400
+
+            # Return trade result
+            return jsonify({
+                "success": True,
+                "trade": result,
+                "message": f"Successfully executed {side} {quantity} {symbol}"
+            })
+
+        except Exception as e:
+            return jsonify({"error": f"Trade execution failed: {str(e)}"}), 500
 
     @app.post("/api/auto-assign-strategies")
     def auto_assign_strategies():

@@ -84,6 +84,81 @@
     </div>
   </div>
 
+  <!-- Manual Trading -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h2 class="h6 mb-3">Manual Trading</h2>
+      <div class="row g-3">
+        <!-- Symbol & Side -->
+        <div class="col-md-6">
+          <label class="form-label small">Symbol</label>
+          <select class="form-select form-select-sm" id="manualSymbol">
+            <option value="BTC_USDT">BTC/USDT</option>
+            <option value="ETH_USDT">ETH/USDT</option>
+            <option value="SOL_USDT">SOL/USDT</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small">Side</label>
+          <select class="form-select form-select-sm" id="manualSide">
+            <option value="buy">Buy</option>
+            <option value="sell">Sell</option>
+          </select>
+        </div>
+
+        <!-- Order Type -->
+        <div class="col-md-6">
+          <label class="form-label small">Order Type</label>
+          <select class="form-select form-select-sm" id="manualOrderType">
+            <option value="market">Market (Instant)</option>
+            <option value="limit">Limit (Set Price)</option>
+          </select>
+        </div>
+
+        <!-- Quantity -->
+        <div class="col-md-6">
+          <label class="form-label small">Quantity (in crypto)</label>
+          <input type="number" class="form-control form-control-sm" id="manualQuantity" placeholder="0.001" step="0.00000001" min="0" />
+          <div class="form-text" id="quantityHint">≈ $0.00</div>
+        </div>
+
+        <!-- Limit Price (conditional) -->
+        <div class="col-md-6" id="limitPriceGroup" style="display: none;">
+          <label class="form-label small">Limit Price (USDT)</label>
+          <input type="number" class="form-control form-control-sm" id="manualLimitPrice" placeholder="42000.00" step="0.01" min="0" />
+        </div>
+
+        <!-- Current Info -->
+        <div class="col-12">
+          <div class="p-2" style="background: var(--page-bg); border-radius: 6px;">
+            <div class="row g-2 text-center">
+              <div class="col-6">
+                <div class="muted small">Current Price</div>
+                <div class="mono" style="font-size: 1.1rem; font-weight: 600;" id="manualCurrentPrice">-</div>
+              </div>
+              <div class="col-6">
+                <div class="muted small">Available USDT</div>
+                <div class="mono" style="font-size: 1.1rem; font-weight: 600; color: var(--green);" id="manualAvailableUSDT">-</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Execute Button -->
+        <div class="col-12">
+          <button class="btn btn-primary w-100" id="executeTradeBtn" onclick="executeManualTrade()">
+            Execute Trade
+          </button>
+        </div>
+
+        <!-- Status Message -->
+        <div class="col-12">
+          <div id="manualTradeStatus"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Trading Decisions Log -->
   <div class="card mb-3">
     <div class="card-body">
@@ -842,6 +917,133 @@
     refreshBtn.addEventListener("click", refreshAll);
 
     // Initial load
+    // ─────────────────────────────────────────────────────────────────────────
+    // Manual Trading Functions
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Update UI when symbol or order type changes
+    document.getElementById('manualSymbol').addEventListener('change', updateManualTradingInfo);
+    document.getElementById('manualOrderType').addEventListener('change', function() {
+      const orderType = this.value;
+      const limitPriceGroup = document.getElementById('limitPriceGroup');
+      limitPriceGroup.style.display = orderType === 'limit' ? 'block' : 'none';
+    });
+
+    // Update quantity hint when quantity changes
+    document.getElementById('manualQuantity').addEventListener('input', updateQuantityHint);
+
+    async function updateManualTradingInfo() {
+      const symbol = document.getElementById('manualSymbol').value;
+
+      try {
+        // Fetch current price
+        const pricesRes = await fetch('/prices.json', { cache: "no-store" });
+        const pricesData = await pricesRes.json();
+
+        const item = pricesData.items.find(p => p.symbol === symbol);
+        if (item) {
+          document.getElementById('manualCurrentPrice').textContent = `$${item.price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        }
+
+        // Fetch available USDT balance
+        const balanceRes = await fetch('/exchange-balance.json', { cache: "no-store" });
+        const balanceData = await balanceRes.json();
+
+        const usdtBalance = balanceData.balances.find(b => b.asset === 'USDT');
+        if (usdtBalance) {
+          document.getElementById('manualAvailableUSDT').textContent = `$${usdtBalance.total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        }
+
+        // Update quantity hint
+        updateQuantityHint();
+
+      } catch (e) {
+        console.error('Failed to update manual trading info:', e);
+      }
+    }
+
+    function updateQuantityHint() {
+      const quantity = parseFloat(document.getElementById('manualQuantity').value) || 0;
+      const priceText = document.getElementById('manualCurrentPrice').textContent.replace(/[$,]/g, '');
+      const price = parseFloat(priceText) || 0;
+
+      const usdValue = quantity * price;
+      document.getElementById('quantityHint').textContent = `≈ $${usdValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    }
+
+    async function executeManualTrade() {
+      const symbol = document.getElementById('manualSymbol').value;
+      const side = document.getElementById('manualSide').value;
+      const quantity = parseFloat(document.getElementById('manualQuantity').value);
+      const orderType = document.getElementById('manualOrderType').value;
+      const limitPrice = parseFloat(document.getElementById('manualLimitPrice').value);
+
+      const statusDiv = document.getElementById('manualTradeStatus');
+      const btn = document.getElementById('executeTradeBtn');
+
+      // Validate
+      if (!quantity || quantity <= 0) {
+        statusDiv.innerHTML = '<div class="alert alert-danger small mb-0">Please enter a valid quantity</div>';
+        return;
+      }
+
+      if (orderType === 'limit' && (!limitPrice || limitPrice <= 0)) {
+        statusDiv.innerHTML = '<div class="alert alert-danger small mb-0">Please enter a valid limit price</div>';
+        return;
+      }
+
+      // Disable button during execution
+      btn.disabled = true;
+      btn.textContent = 'Executing...';
+      statusDiv.innerHTML = '<div class="alert alert-info small mb-0">Submitting trade...</div>';
+
+      try {
+        const payload = {
+          symbol,
+          side,
+          quantity,
+          order_type: orderType
+        };
+
+        if (orderType === 'limit') {
+          payload.limit_price = limitPrice;
+        }
+
+        const res = await fetch('/api/manual-trade', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          statusDiv.innerHTML = `<div class="alert alert-success small mb-0">${data.message}</div>`;
+
+          // Clear form
+          document.getElementById('manualQuantity').value = '';
+          document.getElementById('manualLimitPrice').value = '';
+
+          // Refresh balances and info
+          setTimeout(() => {
+            loadExchangeBalance();
+            updateManualTradingInfo();
+          }, 1000);
+
+        } else {
+          statusDiv.innerHTML = `<div class="alert alert-danger small mb-0">Error: ${data.error || 'Unknown error'}</div>`;
+        }
+
+      } catch (e) {
+        statusDiv.innerHTML = `<div class="alert alert-danger small mb-0">Failed to execute trade: ${e.message}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Execute Trade';
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+
     Promise.all([
       load(),
       loadPrices(),
@@ -850,7 +1052,8 @@
       loadAutoRebalanceStatus(),
       loadFees(),
       loadExchangeBalance(),
-      loadDecisions()
+      loadDecisions(),
+      updateManualTradingInfo()  // Initialize manual trading info
     ]).then(() => {
       if (autoChk.checked) startLoop();
     });

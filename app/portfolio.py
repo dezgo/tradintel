@@ -20,43 +20,37 @@ EXECUTION_MODE = "binance_testnet"  # Change this to switch between paper and te
 
 def _get_capital_per_bot(total_bots: int) -> float:
     """
-    Fetch stablecoin balance from exchange and distribute among bots.
-    Uses USDT + USDC + BUSD, allocates 90% (10% reserve), distributed evenly.
+    Fetch USDT balance from exchange and distribute among bots.
+    Allocates 90% of USDT balance (10% reserve), distributed evenly across all bots.
+    Only USDT is used since we only trade USDT pairs (BTC_USDT, ETH_USDT, SOL_USDT).
     """
     if EXECUTION_MODE == "paper":
         # Paper mode: use $1000 per bot for simulation
         return 1000.0
 
-    # Binance testnet: fetch real stablecoin balances
+    # Binance testnet: fetch USDT balance only (since we only trade USDT pairs)
     try:
         client = BinanceTestnetExec("balance_fetcher")
         response = client.exchange.privateGetAccount()
         balances = response.get('balances', [])
 
-        # Sum all stablecoin balances (USDT, USDC, BUSD)
-        stablecoins = ['USDT', 'USDC', 'BUSD']
-        total_stable_balance = 0.0
-        stable_breakdown = {}
-
+        # Find USDT balance (our only quote currency)
+        usdt_balance = 0.0
         for bal in balances:
-            if bal['asset'] in stablecoins:
-                amount = float(bal.get('free', 0))
-                if amount > 0:
-                    stable_breakdown[bal['asset']] = amount
-                    total_stable_balance += amount
+            if bal['asset'] == 'USDT':
+                usdt_balance = float(bal.get('free', 0))
+                break
 
-        if total_stable_balance > 0:
+        if usdt_balance > 0:
             # Distribute evenly among all bots, leaving 10% as reserve
-            usable = total_stable_balance * 0.9
+            usable = usdt_balance * 0.9
             per_bot = usable / total_bots
 
-            # Log breakdown
-            breakdown_str = ", ".join([f"{asset}: ${amt:.2f}" for asset, amt in stable_breakdown.items()])
-            print(f"📊 Found ${total_stable_balance:.2f} in stablecoins ({breakdown_str})")
+            print(f"📊 Found ${usdt_balance:.2f} USDT on exchange")
             print(f"💰 Allocating ${per_bot:.2f} per bot (90% of total / {total_bots} bots)")
             return per_bot
         else:
-            print(f"⚠️  Warning: No stablecoin balance found (USDT/USDC/BUSD)")
+            print(f"⚠️  Warning: No USDT balance found")
             print(f"    Using fallback: $1000 per bot")
             return 1000.0
 
