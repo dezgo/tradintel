@@ -107,6 +107,15 @@ class PortfolioManager:
         # Calculate today's P&L (Sydney timezone - midnight to now)
         todays_pnl = store.calculate_todays_pnl()
 
+        # Debug logging
+        print(f"[Portfolio Metrics Debug]")
+        print(f"  Starting Capital (bot allocations): ${total_allocation:.2f}")
+        print(f"  Current Value (bot equities): ${total_equity:.2f}")
+        print(f"  Total P&L: ${total_pnl:.2f}")
+        print(f"  Realized P&L (from DB): ${realized_pnl:.2f}")
+        print(f"  Unrealized P&L: ${unrealized_pnl:.2f}")
+        print(f"  Today's P&L: ${todays_pnl:.2f}")
+
         return {
             "portfolio_metrics": {
                 "starting_capital": total_allocation,
