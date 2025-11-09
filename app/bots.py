@@ -57,6 +57,7 @@ class TradingBot:
         exec_client: ExecutionClient,
         allocation: float,
         risk_per_trade: float = 0.01,
+        starting_allocation: Optional[float] = None,
     ) -> None:
         self.name = name
         self.symbol = symbol
@@ -65,6 +66,9 @@ class TradingBot:
         self.data = data
         self.exec = exec_client
         self.allocation = float(allocation)
+        # starting_allocation is the FIXED baseline for P&L calculations
+        # It never changes, even when rebalancing modifies allocation
+        self.starting_allocation = float(starting_allocation) if starting_allocation is not None else float(allocation)
         self.risk_per_trade = float(risk_per_trade)
         self.metrics = BotMetrics(cash=self.allocation, equity=self.allocation)
         self._last_bar_ts: int | None = None

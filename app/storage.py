@@ -214,6 +214,21 @@ class Storage:
             )
             self._conn.commit()
 
+        # Migrate to version 8: add starting_allocation to track fixed P&L baseline
+        if ver < 8:
+            cur.executescript(
+                """
+                BEGIN;
+                -- Add starting_allocation column, defaulting to current allocation
+                ALTER TABLE bots ADD COLUMN starting_allocation REAL;
+                -- Initialize starting_allocation to current allocation for existing bots
+                UPDATE bots SET starting_allocation = allocation WHERE starting_allocation IS NULL;
+                PRAGMA user_version = 8;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
     # ── Trades ────────────────────────────────────────────────────────────────
     def record_trade(
         self,
@@ -245,6 +260,7 @@ class Storage:
         strategy: str,
         params: Dict[str, Any],
         allocation: float,
+        starting_allocation: Optional[float] = None,
         cash: float,
         pos_qty: float,
         avg_price: float,
@@ -254,11 +270,13 @@ class Storage:
     ) -> None:
         now = int(time.time())
         pjson = json.dumps(params, separators=(",", ":"))
+        # If starting_allocation not provided, use current allocation (for new bots)
+        start_alloc = starting_allocation if starting_allocation is not None else allocation
         with self._lock:
             self._conn.execute(
                 """
-                INSERT INTO bots(name, manager, symbol, tf, strategy, params_json, allocation, cash, pos_qty, avg_price, equity, score, trades, updated_ts)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO bots(name, manager, symbol, tf, strategy, params_json, allocation, starting_allocation, cash, pos_qty, avg_price, equity, score, trades, updated_ts)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(name) DO UPDATE SET
                     manager=excluded.manager,
                     symbol=excluded.symbol,
@@ -266,6 +284,7 @@ class Storage:
                     strategy=excluded.strategy,
                     params_json=excluded.params_json,
                     allocation=excluded.allocation,
+                    starting_allocation=COALESCE(excluded.starting_allocation, bots.starting_allocation, excluded.allocation),
                     cash=excluded.cash,
                     pos_qty=excluded.pos_qty,
                     avg_price=excluded.avg_price,
@@ -274,19 +293,19 @@ class Storage:
                     trades=excluded.trades,
                     updated_ts=excluded.updated_ts
                 """,
-                (name, manager, symbol, tf, strategy, pjson, allocation, cash, pos_qty, avg_price, equity, score, trades, now),
+                (name, manager, symbol, tf, strategy, pjson, allocation, start_alloc, cash, pos_qty, avg_price, equity, score, trades, now),
             )
             self._conn.commit()
 
     def load_bots(self) -> Dict[str, Dict[str, Any]]:
         with self._lock:
             cur = self._conn.execute(
-                "SELECT name, manager, symbol, tf, strategy, params_json, allocation, cash, pos_qty, avg_price, equity, score, trades FROM bots"
+                "SELECT name, manager, symbol, tf, strategy, params_json, allocation, starting_allocation, cash, pos_qty, avg_price, equity, score, trades FROM bots"
             )
             rows = cur.fetchall()
         out: Dict[str, Dict[str, Any]] = {}
         for r in rows:
-            name, manager, symbol, tf, strategy, pjson, allocation, cash, pos_qty, avg_price, equity, score, trades = r
+            name, manager, symbol, tf, strategy, pjson, allocation, starting_allocation, cash, pos_qty, avg_price, equity, score, trades = r
             out[name] = {
                 "manager": manager,
                 "symbol": symbol,
@@ -294,6 +313,7 @@ class Storage:
                 "strategy": strategy,
                 "params": json.loads(pjson),
                 "allocation": float(allocation),
+                "starting_allocation": float(starting_allocation) if starting_allocation is not None else float(allocation),
                 "cash": float(cash),
                 "pos_qty": float(pos_qty),
                 "avg_price": float(avg_price),

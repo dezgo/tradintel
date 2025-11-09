@@ -35,6 +35,7 @@ def _ensure_manual_trade_bot():
             strategy="Manual",
             params={},
             allocation=0.0,  # Manual trades don't have bot allocation
+            starting_allocation=0.0,
             cash=0.0,
             pos_qty=0.0,
             avg_price=0.0,
@@ -201,6 +202,7 @@ def create_app() -> Flask:
                                         strategy=strategy_name,
                                         params=params,
                                         allocation=bot.allocation,
+                                        starting_allocation=bot.starting_allocation,
                                         cash=bot.metrics.cash,
                                         pos_qty=bot.metrics.pos_qty,
                                         avg_price=bot.metrics.avg_price,
@@ -491,8 +493,9 @@ def create_app() -> Flask:
             reset_count = 0
             for manager in _pm.managers:
                 for bot in manager.bots:
-                    # Reset both allocation AND metrics to fresh initial capital
+                    # Reset both allocation AND starting_allocation to fresh initial capital
                     bot.allocation = initial_capital
+                    bot.starting_allocation = initial_capital  # CRITICAL: Reset P&L baseline
                     bot.metrics.cash = initial_capital
                     bot.metrics.pos_qty = 0.0
                     bot.metrics.avg_price = 0.0
@@ -512,6 +515,7 @@ def create_app() -> Flask:
                         strategy=type(bot.strategy).__name__,
                         params=params,
                         allocation=bot.allocation,
+                        starting_allocation=bot.starting_allocation,
                         cash=bot.metrics.cash,
                         pos_qty=bot.metrics.pos_qty,
                         avg_price=bot.metrics.avg_price,
