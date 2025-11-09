@@ -54,7 +54,56 @@
   </div>
 
   <div class="row">
-    <!-- Filters & Stats -->\n    <div class="col-lg-3">
+    <!-- Filters & Stats -->
+    <div class="col-lg-3">
+      <!-- Manual Evolution Card -->
+      <div class="card mb-3">
+        <div class="card-body">
+          <h2 class="h6 mb-3">🧬 Run Evolution</h2>
+
+          <div class="mb-3">
+            <label class="form-label small">Timeframe</label>
+            <select class="form-select form-select-sm" id="manualTimeframe">
+              <option value="1m">1m (1 minute)</option>
+              <option value="5m">5m (5 minutes)</option>
+              <option value="15m">15m (15 minutes)</option>
+              <option value="30m">30m (30 minutes)</option>
+              <option value="1h">1h (1 hour)</option>
+              <option value="4h">4h (4 hours)</option>
+              <option value="1d" selected>1d (Daily)</option>
+              <option value="1w">1w (Weekly)</option>
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small">Generations (1-10)</label>
+            <input type="number" class="form-control form-control-sm" id="manualGenerations" value="1" min="1" max="10" />
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small">Population (5-50)</label>
+            <input type="number" class="form-control form-control-sm" id="manualPopulation" value="20" min="5" max="50" />
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small">Survivors (2-10)</label>
+            <input type="number" class="form-control form-control-sm" id="manualSurvivors" value="5" min="2" max="10" />
+          </div>
+
+          <button class="btn btn-sm btn-primary w-100" onclick="runManualEvolution()">
+            <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16" class="me-1">
+              <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+              <path d="M6.271 5.055a.5.5 0 0 1 .52.038l3.5 2.5a.5.5 0 0 1 0 .814l-3.5 2.5A.5.5 0 0 1 6 10.5v-5a.5.5 0 0 1 .271-.445z"/>
+            </svg>
+            Start Evolution
+          </button>
+
+          <small class="d-block mt-2 text-muted" style="font-size: 0.7rem;">
+            Runs evolution in background. Strategies appear in results table below when complete.
+          </small>
+        </div>
+      </div>
+
       <div class="card mb-3">
         <div class="card-body">
           <h2 class="h6 mb-3">Filters</h2>
@@ -174,6 +223,7 @@
                 <th>Score</th>
                 <th>Gen</th>
                 <th>Symbol</th>
+                <th>TF</th>
                 <th>Genome Preview</th>
                 <th>Return</th>
                 <th>Sharpe</th>
@@ -215,6 +265,7 @@
             <td><span class="badge ${scoreClass}">${r.score.toFixed(0)}</span></td>
             <td><span class="gen-badge">G${r.generation}</span></td>
             <td class="mono">${r.symbol.replace('_USDT', '')}</td>
+            <td class="small text-muted">${r.timeframe}</td>
             <td class="genome-preview" title="${genomePreview}">${genomePreview}</td>
             <td class="mono ${returnClass}">${r.total_return >= 0 ? '+' : ''}${r.total_return.toFixed(1)}%</td>
             <td class="mono ${sharpeClass}">${r.sharpe_ratio.toFixed(2)}</td>
@@ -257,6 +308,60 @@
         }
       } catch (e) {
         alert('Error promoting: ' + e.message);
+      }
+    }
+
+    async function runManualEvolution() {
+      const timeframe = document.getElementById('manualTimeframe').value;
+      const generations = parseInt(document.getElementById('manualGenerations').value);
+      const population = parseInt(document.getElementById('manualPopulation').value);
+      const survivors = parseInt(document.getElementById('manualSurvivors').value);
+
+      // Validation
+      if (generations < 1 || generations > 10) {
+        alert('Generations must be between 1 and 10');
+        return;
+      }
+      if (population < 5 || population > 50) {
+        alert('Population size must be between 5 and 50');
+        return;
+      }
+      if (survivors < 2 || survivors > population) {
+        alert('Survivors must be between 2 and population size');
+        return;
+      }
+
+      const confirmMsg = `🧬 Start Evolution Run?\\n\\n` +
+        `Timeframe: ${timeframe}\\n` +
+        `Generations: ${generations}\\n` +
+        `Population: ${population}\\n` +
+        `Survivors: ${survivors}\\n\\n` +
+        `This will test ${population * generations * 3} strategies (${population} genomes × ${generations} gen × 3 symbols).\\n\\n` +
+        `Progress will be visible in server logs. Results will appear in the table below when complete.`;
+
+      if (!confirm(confirmMsg)) return;
+
+      try {
+        const res = await fetch('/api/evolution/run-manual', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            timeframe: timeframe,
+            num_generations: generations,
+            population_size: population,
+            survivors: survivors
+          })
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+          alert('Error starting evolution: ' + data.error);
+        } else {
+          alert(`✅ ${data.message}\\n\\nEvolution is running in the background. Check server logs for progress.\\n\\nResults will appear in the table below when complete (refresh to see new strategies).`);
+        }
+      } catch (e) {
+        alert('Error starting evolution: ' + e.message);
       }
     }
 

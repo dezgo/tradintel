@@ -190,7 +190,8 @@ class GeneticEvolver:
         population_size: int = 20,
         survivors: int = 5,
         mutation_rate: float = 0.7,
-        crossover_rate: float = 0.3
+        crossover_rate: float = 0.3,
+        timeframe: str = "1d"
     ):
         """
         Initialize genetic evolver.
@@ -200,6 +201,7 @@ class GeneticEvolver:
             survivors: Number of top performers to keep for breeding
             mutation_rate: Probability of mutation when creating offspring
             crossover_rate: Probability of crossover when creating offspring
+            timeframe: Timeframe to test strategies on (1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w)
         """
         self.population_size = population_size
         self.survivors = survivors
@@ -211,7 +213,7 @@ class GeneticEvolver:
 
         # Test configuration
         self.symbols = ["BTC_USDT", "ETH_USDT", "SOL_USDT"]
-        self.timeframe = "1d"
+        self.timeframe = timeframe
         self.days = 365
         self.initial_capital = 1000.0
         self.min_notional = 100.0
@@ -428,3 +430,44 @@ class GeneticEvolver:
                 print(f"[Evolution] Error in evolution cycle: {e}")
                 # Sleep for 1 hour on error before retrying
                 time.sleep(3600)
+
+    def run_manual(self, num_generations: int = 1) -> List[EvolvedStrategy]:
+        """
+        Run evolution manually for a specified number of generations.
+        Useful for on-demand evolution runs from the UI.
+
+        Args:
+            num_generations: Number of generations to evolve (default: 1)
+
+        Returns:
+            List of all top performers across all generations
+        """
+        print(f"[Evolution] Starting manual evolution run")
+        print(f"[Evolution] Timeframe: {self.timeframe}")
+        print(f"[Evolution] Generations: {num_generations}")
+        print(f"[Evolution] Population size: {self.population_size}")
+        print(f"[Evolution] Survivors per generation: {self.survivors}")
+        print(f"[Evolution] Mutation rate: {self.mutation_rate}")
+        print(f"[Evolution] Crossover rate: {self.crossover_rate}")
+
+        # Initialize population if not already done
+        if not self.population:
+            self.initialize_population()
+
+        all_survivors = []
+
+        for i in range(num_generations):
+            print(f"\n[Evolution] Manual run: generation {i+1}/{num_generations}")
+            try:
+                survivors = self.evolve_generation()
+                all_survivors.extend(survivors)
+            except Exception as e:
+                print(f"[Evolution] Error in generation {i+1}: {e}")
+                import traceback
+                traceback.print_exc()
+
+        print(f"\n[Evolution] Manual evolution complete!")
+        print(f"[Evolution] Evolved {num_generations} generation(s)")
+        print(f"[Evolution] Generated {len(all_survivors)} top strategies")
+
+        return all_survivors

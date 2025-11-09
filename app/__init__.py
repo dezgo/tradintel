@@ -1591,4 +1591,68 @@ def create_app() -> Flask:
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
+    @app.post("/api/evolution/run-manual")
+    @login_required
+    def run_manual_evolution():
+        """
+        Trigger a manual evolution run with custom parameters.
+        Runs in a background thread and returns immediately.
+        """
+        import threading
+        from app.genetic_evolution import GeneticEvolver
+
+        data = request.json
+        if not data:
+            return jsonify({"error": "Request body required"}), 400
+
+        # Extract parameters
+        timeframe = data.get("timeframe", "1d")
+        num_generations = int(data.get("num_generations", 1))
+        population_size = int(data.get("population_size", 20))
+        survivors = int(data.get("survivors", 5))
+
+        # Validate inputs
+        valid_timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
+        if timeframe not in valid_timeframes:
+            return jsonify({"error": f"Invalid timeframe. Must be one of: {', '.join(valid_timeframes)}"}), 400
+
+        if num_generations < 1 or num_generations > 10:
+            return jsonify({"error": "num_generations must be between 1 and 10"}), 400
+
+        if population_size < 5 or population_size > 50:
+            return jsonify({"error": "population_size must be between 5 and 50"}), 400
+
+        if survivors < 2 or survivors > population_size:
+            return jsonify({"error": "survivors must be between 2 and population_size"}), 400
+
+        # Run evolution in background thread
+        def _run_evolution():
+            try:
+                print(f"\n[Manual Evolution] Starting evolution run on {timeframe}")
+                evolver = GeneticEvolver(
+                    population_size=population_size,
+                    survivors=survivors,
+                    mutation_rate=0.7,
+                    crossover_rate=0.3,
+                    timeframe=timeframe
+                )
+                evolver.run_manual(num_generations=num_generations)
+                print(f"[Manual Evolution] Evolution run complete on {timeframe}")
+            except Exception as e:
+                print(f"[Manual Evolution] Error: {e}")
+                import traceback
+                traceback.print_exc()
+
+        thread = threading.Thread(target=_run_evolution, daemon=True)
+        thread.start()
+
+        return jsonify({
+            "success": True,
+            "message": f"Evolution started in background: {num_generations} generation(s) on {timeframe}",
+            "timeframe": timeframe,
+            "num_generations": num_generations,
+            "population_size": population_size,
+            "survivors": survivors
+        })
+
     return app
