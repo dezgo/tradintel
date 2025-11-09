@@ -937,13 +937,18 @@
       const symbol = document.getElementById('manualSymbol').value;
 
       try {
-        // Fetch current price
-        const pricesRes = await fetch('/prices.json', { cache: "no-store" });
-        const pricesData = await pricesRes.json();
+        // Handle USDC_USDT specially (price is always ~1.0)
+        if (symbol === 'USDC_USDT') {
+          document.getElementById('manualCurrentPrice').textContent = '$1.0000';
+        } else {
+          // Fetch current price for crypto pairs
+          const pricesRes = await fetch('/prices.json', { cache: "no-store" });
+          const pricesData = await pricesRes.json();
 
-        const item = pricesData.items.find(p => p.symbol === symbol);
-        if (item) {
-          document.getElementById('manualCurrentPrice').textContent = `$${item.price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+          const item = pricesData.items.find(p => p.symbol === symbol);
+          if (item) {
+            document.getElementById('manualCurrentPrice').textContent = `$${item.price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+          }
         }
 
         // Fetch available USDT balance
