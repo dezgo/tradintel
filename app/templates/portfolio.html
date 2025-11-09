@@ -82,7 +82,7 @@
   <!-- Trading Controls -->
   <div class="card mb-3">
     <div class="card-body">
-      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
         <div class="d-flex align-items-center gap-2">
           <h2 class="h6 mb-0">Trading Controls</h2>
           <span class="badge" id="tradingStatusBadge" style="font-size: 0.7rem;">LOADING</span>
@@ -92,6 +92,24 @@
           <button class="btn btn-sm btn-success" id="resumeBtn" onclick="resumeTrading()" style="display: none;">▶️ Resume Trading</button>
           <button class="btn btn-sm btn-danger" onclick="liquidateAll()">🚨 Emergency Liquidate</button>
         </div>
+      </div>
+
+      <!-- Capital Limit Control -->
+      <div class="border-top pt-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div class="d-flex align-items-center gap-2">
+            <label for="capitalLimitInput" class="form-label mb-0" style="font-size: 0.9rem;">Capital Limit (USDT):</label>
+            <span class="text-muted" id="capitalLimitStatus" style="font-size: 0.85rem;">Not set (using 90% of balance)</span>
+          </div>
+          <div class="d-flex gap-2">
+            <input type="number" class="form-control form-control-sm" id="capitalLimitInput" placeholder="e.g., 5000" style="width: 120px;" step="100" min="100">
+            <button class="btn btn-sm btn-primary" onclick="setCapitalLimit()">Set Limit</button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="clearCapitalLimit()">Clear</button>
+          </div>
+        </div>
+        <small class="text-muted d-block mt-2" style="font-size: 0.8rem;">
+          <strong>⚠️ Restart required after changing capital limit.</strong> Limits how much USDT is allocated for trading (e.g., $5k out of $100k balance).
+        </small>
       </div>
     </div>
   </div>
@@ -727,8 +745,80 @@
           pauseBtn.style.display = 'inline-block';
           resumeBtn.style.display = 'none';
         }
+
+        // Update capital limit status
+        const capitalLimitStatus = document.getElementById('capitalLimitStatus');
+        const capitalLimitInput = document.getElementById('capitalLimitInput');
+
+        if (data.capital_limit_usdt && data.capital_limit_usdt > 0) {
+          capitalLimitStatus.textContent = `Set to $${data.capital_limit_usdt.toLocaleString()}`;
+          capitalLimitStatus.className = 'text-success fw-bold';
+          capitalLimitInput.value = data.capital_limit_usdt;
+        } else {
+          capitalLimitStatus.textContent = 'Not set (using 90% of balance)';
+          capitalLimitStatus.className = 'text-muted';
+          capitalLimitInput.value = '';
+        }
       } catch (err) {
         console.error('Error loading trading status:', err);
+      }
+    }
+
+    async function setCapitalLimit() {
+      const input = document.getElementById('capitalLimitInput');
+      const limit = parseFloat(input.value);
+
+      if (!limit || limit <= 0) {
+        alert('Please enter a valid capital limit (positive number)');
+        return;
+      }
+
+      if (!confirm(`Set capital limit to $${limit.toLocaleString()} USDT?\n\n⚠️ You MUST restart the app for this to take effect.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/set-capital-limit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ capital_limit_usdt: limit })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert(`✅ ${data.message}`);
+          loadTradingStatus();
+        } else {
+          alert('Failed to set capital limit: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error setting capital limit:', err);
+        alert('Error setting capital limit. See console for details.');
+      }
+    }
+
+    async function clearCapitalLimit() {
+      if (!confirm('Remove capital limit and use 90% of available balance?\n\n⚠️ You MUST restart the app for this to take effect.')) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/set-capital-limit', {
+          method: 'DELETE'
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert(`✅ ${data.message}`);
+          loadTradingStatus();
+        } else {
+          alert('Failed to clear capital limit: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error clearing capital limit:', err);
+        alert('Error clearing capital limit. See console for details.');
       }
     }
 

@@ -21,12 +21,15 @@ EXECUTION_MODE = "binance_testnet"  # Change this to switch between paper and te
 def _get_capital_per_bot(total_bots: int) -> float:
     """
     Fetch USDT balance from exchange and distribute among bots.
-    Allocates 90% of USDT balance (10% reserve), distributed evenly across all bots.
+    Respects capital_limit_usdt setting if configured, otherwise uses 90% of balance.
     Only USDT is used since we only trade USDT pairs (BTC_USDT, ETH_USDT, SOL_USDT).
     """
     if EXECUTION_MODE == "paper":
         # Paper mode: use $1000 per bot for simulation
         return 1000.0
+
+    # Check for capital limit setting
+    capital_limit = store.get_setting("capital_limit_usdt", default=None)
 
     # Binance testnet: fetch USDT balance only (since we only trade USDT pairs)
     try:
@@ -42,12 +45,20 @@ def _get_capital_per_bot(total_bots: int) -> float:
                 break
 
         if usdt_balance > 0:
-            # Distribute evenly among all bots, leaving 10% as reserve
-            usable = usdt_balance * 0.9
-            per_bot = usable / total_bots
+            # Use capital limit if set, otherwise use 90% of balance
+            if capital_limit is not None and capital_limit > 0:
+                usable = min(float(capital_limit), usdt_balance)
+                print(f"📊 Exchange balance: ${usdt_balance:.2f} USDT")
+                print(f"🔒 Capital limit: ${capital_limit:.2f} USDT")
+                print(f"💰 Using ${usable:.2f} USDT ({usable / usdt_balance * 100:.1f}% of balance)")
+            else:
+                # Default: 90% of balance (10% reserve)
+                usable = usdt_balance * 0.9
+                print(f"📊 Found ${usdt_balance:.2f} USDT on exchange")
+                print(f"💰 Using ${usable:.2f} USDT (90% of balance, 10% reserve)")
 
-            print(f"📊 Found ${usdt_balance:.2f} USDT on exchange")
-            print(f"💰 Allocating ${per_bot:.2f} per bot (90% of total / {total_bots} bots)")
+            per_bot = usable / total_bots
+            print(f"🤖 Allocating ${per_bot:.2f} per bot ({total_bots} bots)")
             return per_bot
         else:
             print(f"⚠️  Warning: No USDT balance found")
