@@ -1509,19 +1509,22 @@
 
     // ─────────────────────────────────────────────────────────────────────────
 
-    Promise.all([
-      load(),
-      loadPrices(),
-      loadPositions(),
-      loadRoundtrips(),
-      loadAutoRebalanceStatus(),
-      loadFees(),
-      loadExchangeBalance(),
-      loadDecisions(),
-      updateManualTradingInfo(),  // Initialize manual trading info
-      loadTradingStatus(),  // Initialize trading controls
-      loadAvailableStrategies()  // Load available strategies for dropdown
-    ]).then(() => {
+    // Load strategies first (needed by renderWorkers)
+    loadAvailableStrategies().then(() => {
+      // Then load everything else
+      return Promise.all([
+        load(),
+        loadPrices(),
+        loadPositions(),
+        loadRoundtrips(),
+        loadAutoRebalanceStatus(),
+        loadFees(),
+        loadExchangeBalance(),
+        loadDecisions(),
+        updateManualTradingInfo(),  // Initialize manual trading info
+        loadTradingStatus()  // Initialize trading controls
+      ]);
+    }).then(() => {
       if (autoChk.checked) startLoop();
     });
   </script>
