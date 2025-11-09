@@ -726,9 +726,9 @@ class Storage:
         return sorted(out, key=lambda x: x["open_ts"], reverse=True)
 
     # ── Saved backtests ────────────────────────────────────────────────────────
-    def save_backtest(self, *, name: str, strategy: str, symbol: str, timeframe: str,
+    def save_strategy(self, *, name: str, strategy: str, symbol: str, timeframe: str,
                       params: Dict[str, Any], initial_capital: float, min_notional: float, days: int = 365) -> int:
-        """Save a backtest configuration. Returns the saved ID."""
+        """Save a strategy configuration. Returns the saved ID."""
         params_json = json.dumps(params, separators=(",", ":"))
         now = int(time.time())
 
@@ -752,8 +752,8 @@ class Storage:
             self._conn.commit()
             return cur.lastrowid
 
-    def list_saved_backtests(self) -> list[dict]:
-        """List all saved backtest configurations."""
+    def list_saved_strategies(self) -> list[dict]:
+        """List all saved strategy configurations."""
         with self._lock:
             cur = self._conn.execute(
                 "SELECT id, name, strategy, symbol, timeframe, params_json, initial_capital, min_notional, days, created_ts FROM saved_backtests ORDER BY created_ts DESC"
@@ -776,12 +776,43 @@ class Storage:
             for r in rows
         ]
 
-    def delete_saved_backtest(self, backtest_id: int) -> bool:
-        """Delete a saved backtest configuration. Returns True if deleted."""
+    def get_saved_strategy(self, strategy_id: int) -> dict | None:
+        """Get a specific saved strategy configuration by ID."""
         with self._lock:
-            cur = self._conn.execute("DELETE FROM saved_backtests WHERE id = ?", (int(backtest_id),))
+            cur = self._conn.execute(
+                "SELECT id, name, strategy, symbol, timeframe, params_json, initial_capital, min_notional, days, created_ts FROM saved_backtests WHERE id = ?",
+                (int(strategy_id),)
+            )
+            row = cur.fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "id": int(row[0]),
+            "name": row[1],
+            "strategy": row[2],
+            "symbol": row[3],
+            "timeframe": row[4],
+            "params": json.loads(row[5]),
+            "initial_capital": float(row[6]),
+            "min_notional": float(row[7]),
+            "days": int(row[8]),
+            "created_ts": int(row[9]),
+        }
+
+    def delete_saved_strategy(self, strategy_id: int) -> bool:
+        """Delete a saved strategy configuration. Returns True if deleted."""
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM saved_backtests WHERE id = ?", (int(strategy_id),))
             self._conn.commit()
             return cur.rowcount > 0
+
+    # Backward compatibility aliases (deprecated, use save_strategy/list_saved_strategies instead)
+    save_backtest = save_strategy
+    list_saved_backtests = list_saved_strategies
+    get_saved_backtest = get_saved_strategy
+    delete_saved_backtest = delete_saved_strategy
 
     # ── Optimization results ───────────────────────────────────────────────────
     def save_optimization_result(

@@ -400,7 +400,7 @@ def create_app() -> Flask:
 
         # Map strategy names to classes and grids (old hardcoded strategies)
         from app.strategies import MeanReversion, Breakout, TrendFollow, MR_GRID, BO_GRID, TF_GRID
-        from app.genome_strategy import GenomeStrategy, load_strategy_from_db
+        from app.strategy_genome import GenomeStrategy
 
         strategy_map = {
             "MeanReversion": (MeanReversion, MR_GRID),
@@ -418,10 +418,27 @@ def create_app() -> Flask:
 
             if strategy_prefix == "saved":
                 # Load saved strategy from database
-                genome = load_strategy_from_db(strategy_id)
-                if not genome:
+                from app.storage import store
+                saved_strat = store.get_saved_strategy(strategy_id)
+                if not saved_strat:
                     return jsonify({"error": f"Saved strategy {strategy_id} not found"}), 404
-                new_strategy = GenomeStrategy(genome)
+
+                # Reconstruct strategy based on saved config
+                strat_name = saved_strat["strategy"]
+                params = saved_strat["params"]
+
+                if strat_name == "GenomeStrategy":
+                    # It's a genome strategy - reconstruct from params
+                    from app.portfolio import _decode_genome
+                    genome = _decode_genome(params)
+                    new_strategy = GenomeStrategy(genome)
+                elif strat_name in strategy_map:
+                    # It's a legacy strategy with custom params
+                    strategy_class = strategy_map[strat_name][0]
+                    new_strategy = strategy_class(**params)
+                else:
+                    return jsonify({"error": f"Unknown saved strategy type: {strat_name}"}), 400
+
                 strategy_type_name = f"SavedStrategy({strategy_id})"
 
             elif strategy_prefix == "evolved":
@@ -483,7 +500,7 @@ def create_app() -> Flask:
 
     @app.get("/api/available-strategies")
     def get_available_strategies():
-        """Get all available strategies for worker dropdown (saved + evolved + hardcoded)."""
+        """Get all available strategies for worker dropdown (evolved + hardcoded)."""
         from app.storage import store
 
         strategies = []
@@ -493,28 +510,34 @@ def create_app() -> Flask:
         strategies.append({"id": "Breakout", "name": "Breakout (Legacy)", "type": "hardcoded"})
         strategies.append({"id": "TrendFollow", "name": "Trend Follow (Legacy)", "type": "hardcoded"})
 
-        # Add saved strategies
-        saved_strategies = store.list_saved_strategies()
-        for s in saved_strategies:
-            strategies.append({
-                "id": f"saved:{s['id']}",
-                "name": f"📋 {s['name']}",
-                "type": "saved"
-            })
+        # Add saved strategies (from strategy builder / backtest clones)
+        try:
+            saved_strategies = store.list_saved_strategies()
+            for s in saved_strategies:
+                strategies.append({
+                    "id": f"saved:{s['id']}",
+                    "name": f"📋 {s['name']}",
+                    "type": "saved"
+                })
+        except Exception as ex:
+            print(f"Warning: Could not load saved strategies: {ex}")
 
         # Add evolved strategies (top 20, only profitable ones)
-        evolved_strategies = store.list_evolved_strategies(symbol=None, min_score=0.0, limit=20)
-        for e in evolved_strategies:
-            # Create a short preview of the genome
-            genome = e["genome"]
-            indicators = genome.get("indicators", [])
-            indicator_preview = indicators[0] if indicators else "custom"
+        try:
+            evolved_strategies = store.list_evolved_strategies(symbol=None, min_score=0.0, limit=20)
+            for e in evolved_strategies:
+                # Create a short preview of the genome
+                genome = e["genome"]
+                indicators = genome.get("indicators", [])
+                indicator_preview = indicators[0] if indicators else "custom"
 
-            strategies.append({
-                "id": f"evolved:{e['id']}",
-                "name": f"🧬 G{e['generation']} {e['symbol']} {indicator_preview.upper()} (score: {e['score']:.1f})",
-                "type": "evolved"
-            })
+                strategies.append({
+                    "id": f"evolved:{e['id']}",
+                    "name": f"🧬 G{e['generation']} {e['symbol']} {indicator_preview.upper()} (score: {e['score']:.1f})",
+                    "type": "evolved"
+                })
+        except Exception as ex:
+            print(f"Warning: Could not load evolved strategies: {ex}")
 
         return jsonify({"strategies": strategies})
 
