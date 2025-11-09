@@ -139,6 +139,25 @@
           Default is 1d (daily) to match optimization/evolution. Only change if you've re-optimized on the new timeframe.
         </small>
       </div>
+
+      <!-- Active Strategies Control -->
+      <div class="border-top pt-3 mt-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div class="d-flex align-items-center gap-2">
+            <label for="numStrategiesInput" class="form-label mb-0" style="font-size: 0.9rem;">Active Strategies:</label>
+            <span class="text-success fw-bold" id="numStrategiesStatus" style="font-size: 0.85rem;">5 strategies</span>
+          </div>
+          <div class="d-flex gap-2">
+            <input type="number" class="form-control form-control-sm" id="numStrategiesInput" placeholder="e.g., 5" style="width: 120px;" step="1" min="1" max="20" value="5">
+            <button class="btn btn-sm btn-primary" onclick="setNumStrategies()">Set Strategies</button>
+          </div>
+        </div>
+        <small class="text-muted d-block mt-2" style="font-size: 0.8rem;">
+          <strong>⚠️ Restart required after changing strategy count.</strong>
+          Portfolio will run the top N evolved strategies from genetic algorithm (sorted by performance score).
+          Only profitable strategies (score > 0) are used.
+        </small>
+      </div>
     </div>
   </div>
 
@@ -808,6 +827,14 @@
         timeframeStatus.textContent = timeframeLabels[timeframe] || timeframe;
         timeframeSelect.value = timeframe;
         tfTag.textContent = `TF: ${timeframe}`;
+
+        // Update number of active strategies status
+        const numStrategies = data.num_active_strategies || 5;
+        const numStrategiesStatus = document.getElementById('numStrategiesStatus');
+        const numStrategiesInput = document.getElementById('numStrategiesInput');
+
+        numStrategiesStatus.textContent = `${numStrategies} strateg${numStrategies === 1 ? 'y' : 'ies'}`;
+        numStrategiesInput.value = numStrategies;
       } catch (err) {
         console.error('Error loading trading status:', err);
       }
@@ -914,6 +941,40 @@
       } catch (err) {
         console.error('Error setting timeframe:', err);
         alert('Error setting timeframe. See console for details.');
+      }
+    }
+
+    async function setNumStrategies() {
+      const input = document.getElementById('numStrategiesInput');
+      const numStrategies = parseInt(input.value);
+
+      if (!numStrategies || numStrategies < 1 || numStrategies > 20) {
+        alert('Please enter a valid number of strategies (1-20)');
+        return;
+      }
+
+      if (!confirm(`Set portfolio to run top ${numStrategies} evolved strateg${numStrategies === 1 ? 'y' : 'ies'}?\n\n⚠️ You MUST restart the app for this to take effect.\n\nPortfolio will select the ${numStrategies} best performing evolved strategies from the genetic algorithm (only profitable strategies with score > 0).`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/set-num-strategies', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ num_strategies: numStrategies })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert(`✅ ${data.message}`);
+          loadTradingStatus();
+        } else {
+          alert('Failed to set number of strategies: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error setting number of strategies:', err);
+        alert('Error setting number of strategies. See console for details.');
       }
     }
 
