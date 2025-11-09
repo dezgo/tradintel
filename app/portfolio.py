@@ -86,6 +86,7 @@ def _apply_saved_state(bots: list) -> None:
                 strategy=type(b.strategy).__name__,
                 params=params,
                 allocation=b.allocation,
+                starting_allocation=b.starting_allocation,
                 cash=b.metrics.cash,
                 pos_qty=b.metrics.pos_qty,
                 avg_price=b.metrics.avg_price,
@@ -97,6 +98,7 @@ def _apply_saved_state(bots: list) -> None:
 
         # hydrate existing bot state
         b.allocation        = float(row["allocation"])
+        b.starting_allocation = float(row.get("starting_allocation", row["allocation"]))
         b.metrics.cash      = float(row["cash"])
         b.metrics.pos_qty   = float(row["pos_qty"])
         b.metrics.avg_price = float(row["avg_price"])
