@@ -9,6 +9,7 @@ from app.execution import PaperExec, BinanceTestnetExec
 from app.bots import TradingBot
 from app.managers import StrategyManager, PortfolioManager
 from app.strategies import MeanReversion, Breakout, TrendFollow, MR_GRID, BO_GRID, TF_GRID
+from app.strategy_genome import StrategyGenome, GenomeStrategy
 from app.storage import store
 
 SYMBOLS = ["BTC_USDT", "ETH_USDT", "SOL_USDT"]
@@ -88,6 +89,16 @@ def _get_execution_client(bot_name: str):
         raise ValueError(f"Unknown execution mode: {EXECUTION_MODE}")
 
 
+def _decode_genome(genome_dict: dict) -> StrategyGenome:
+    """Reconstruct StrategyGenome from dictionary (loaded from database)."""
+    return StrategyGenome(
+        indicators=genome_dict.get("indicators", []),
+        entry_long=genome_dict.get("entry_long", {}),
+        exit_long=genome_dict.get("exit_long", {}),
+        confirm_bars=genome_dict.get("confirm_bars", 2)
+    )
+
+
 def _apply_saved_state(bots: list) -> None:
     saved = store.load_bots()
     for b in bots:
@@ -126,14 +137,111 @@ def _apply_saved_state(bots: list) -> None:
 
 
 def build_portfolio(data_provider: DataProvider | None = None) -> PortfolioManager:
+    """
+    Build portfolio using top evolved strategies from database.
+
+    Strategies contain their own symbol + timeframe, so we don't hardcode N bots per symbol.
+    Instead, we select the top N strategies overall (regardless of symbol).
+
+    Example: If BTC strategies perform best, we might run 3 BTC bots and 2 ETH bots.
+    """
     data = data_provider or GateAdapter()
 
-    # Get timeframe from database setting
-    TF = _get_timeframe()
-    print(f"📈 Trading Timeframe: {TF}")
-    print(f"⚠️  Ensure this matches your optimization/evolution timeframe!")
+    # Get configuration from database
+    num_strategies = int(store.get_setting("num_active_strategies", default=5))
+    min_score = float(store.get_setting("min_strategy_score", default=0.0))
 
-    # Calculate total number of bots to determine capital allocation
+    print(f"\n{'='*70}")
+    print(f"📊 PORTFOLIO CONFIGURATION")
+    print(f"{'='*70}")
+    print(f"Active Strategies: {num_strategies}")
+    print(f"Min Score Threshold: {min_score}")
+    print(f"{'='*70}\n")
+
+    # Get top evolved strategies from database
+    evolved_strats = store.get_top_evolved_strategies_for_portfolio(
+        num_strategies=num_strategies,
+        min_score=min_score
+    )
+
+    if not evolved_strats:
+        print("⚠️  WARNING: No evolved strategies found in database!")
+        print("   Falling back to default hardcoded strategies...")
+        print("   Run genetic evolution or optimization to generate strategies.\n")
+        return _build_fallback_portfolio(data)
+
+    if len(evolved_strats) < num_strategies:
+        print(f"⚠️  WARNING: Only found {len(evolved_strats)} profitable strategies (wanted {num_strategies})")
+        print(f"   Using {len(evolved_strats)} strategies instead.\n")
+
+    # Calculate capital per bot
+    capital_per_bot = _get_capital_per_bot(len(evolved_strats))
+
+    # Create bots from evolved strategies
+    bots: List[TradingBot] = []
+
+    print(f"🤖 ACTIVE STRATEGIES:")
+    print(f"{'-'*70}")
+
+    for idx, strat in enumerate(evolved_strats, start=1):
+        # Decode genome to strategy instance
+        genome = _decode_genome(strat["genome"])
+        strategy_instance = GenomeStrategy(genome)
+
+        # Extract info from strategy metadata
+        symbol = strat["symbol"]
+        timeframe = strat["timeframe"]
+        score = strat["score"]
+        total_return = strat["total_return"]
+        sharpe = strat["sharpe_ratio"]
+
+        # Create bot name: evolved_1_btc_usdt_1d
+        bot_name = f"evolved_{idx}_{symbol.lower()}_{timeframe}"
+
+        # Create bot with strategy's symbol and timeframe
+        bot = TradingBot(
+            name=bot_name,
+            symbol=symbol,
+            tf=timeframe,  # Use strategy's timeframe (not global)
+            strategy=strategy_instance,
+            data=data,
+            exec_client=_get_execution_client(bot_name),
+            allocation=capital_per_bot
+        )
+
+        bots.append(bot)
+
+        print(f"{idx}. {bot_name}")
+        print(f"   Score: {score:.2f} | Return: {total_return:.1f}% | Sharpe: {sharpe:.2f}")
+
+    print(f"{'-'*70}\n")
+
+    # Hydrate from DB (allocations, cash/positions, scores)
+    _apply_saved_state(bots)
+
+    # Single manager for all evolved strategies (simple architecture)
+    manager = StrategyManager(
+        name="evolved_strategies",
+        bots=bots,
+        min_alloc_frac=0.05,
+        max_alloc_frac=0.80
+    )
+
+    return PortfolioManager(
+        managers=[manager],
+        min_alloc_frac=0.10,
+        max_alloc_frac=1.0  # Only one manager, can use all capital
+    )
+
+
+def _build_fallback_portfolio(data: DataProvider) -> PortfolioManager:
+    """
+    Fallback portfolio using hardcoded strategies if no evolved strategies exist.
+    This ensures the system doesn't crash on first run before evolution has completed.
+    """
+    TF = _get_timeframe()
+    print(f"📈 Fallback Timeframe: {TF}\n")
+
     total_bots = len(SYMBOLS) * (len(MR_GRID) + len(BO_GRID) + len(TF_GRID))
     capital_per_bot = _get_capital_per_bot(total_bots)
 
@@ -154,7 +262,6 @@ def build_portfolio(data_provider: DataProvider | None = None) -> PortfolioManag
             name = f"tf_{sym.lower()}_{TF}_p{idx}"
             bots_tf.append(TradingBot(name, sym, TF, TrendFollow(**p), data, _get_execution_client(name), capital_per_bot))
 
-    # hydrate from DB (allocations, cash/positions, scores)
     _apply_saved_state([*bots_mr, *bots_bo, *bots_tf])
 
     m1 = StrategyManager(name="mean_reversion", bots=bots_mr, min_alloc_frac=0.05, max_alloc_frac=0.70)

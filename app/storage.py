@@ -990,6 +990,20 @@ class Storage:
             for r in rows
         ]
 
+    def get_top_evolved_strategies_for_portfolio(self, num_strategies: int = 5, min_score: float = 0.0) -> list[dict]:
+        """
+        Get top N evolved strategies across all symbols for live trading.
+        Only returns profitable strategies (score > min_score).
+        Sorted by score (best first).
+
+        Returns: List of dicts with genome, symbol, timeframe, score, etc.
+        """
+        return self.list_evolved_strategies(
+            symbol=None,  # All symbols
+            min_score=min_score,
+            limit=num_strategies
+        )
+
     def get_evolved_strategy(self, strategy_id: int) -> dict | None:
         """Get a specific evolved strategy by ID."""
         with self._lock:
