@@ -186,11 +186,11 @@
     </div>
   </div>
 
-  <!-- Trading Decisions Log -->
+  <!-- Recent Trades -->
   <div class="card mb-3">
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="h6 mb-0">Trading Decisions <span class="badge badge-active" id="decisionsCount" style="font-size: 0.7rem; margin-left: 0.5rem;">0</span></h2>
+        <h2 class="h6 mb-0">Recent Trades <span class="badge badge-active" id="decisionsCount" style="font-size: 0.7rem; margin-left: 0.5rem;">0</span></h2>
         <button class="btn btn-sm btn-outline-secondary" onclick="loadDecisions()">↻ Refresh</button>
       </div>
       <div id="decisionsContent">
@@ -998,21 +998,27 @@
         const data = await res.json();
         const items = data.items || [];
 
-        document.getElementById("decisionsCount").textContent = items.length;
+        // Filter to only show executed trades (skip signals and skip_* entries)
+        const executedTrades = items.filter(d => d.type === 'trade_executed');
 
-        if (items.length === 0) {
-          document.getElementById("decisionsContent").innerHTML = '<div class="muted small">No recent decisions</div>';
+        document.getElementById("decisionsCount").textContent = executedTrades.length;
+
+        if (executedTrades.length === 0) {
+          document.getElementById("decisionsContent").innerHTML = '<div class="muted small">No trades executed yet</div>';
           return;
         }
 
-        // Show last 10 decisions
-        const recent = items.slice(0, 10);
+        // Show last 10 executed trades
+        const recent = executedTrades.slice(0, 10);
 
         let html = '<div class="table-responsive"><table class="table table-sm table-dark mb-0" style="font-size: 0.85rem;"><thead><tr>';
-        html += '<th style="width: 100px;">Time</th>';
-        html += '<th>Bot</th>';
+        html += '<th style="width: 90px;">Time</th>';
+        html += '<th style="width: 100px;">Pair</th>';
+        html += '<th style="width: 60px;">Side</th>';
+        html += '<th>Quantity</th>';
+        html += '<th>Price</th>';
+        html += '<th>Fee</th>';
         html += '<th>Type</th>';
-        html += '<th>Details</th>';
         html += '</tr></thead><tbody>';
 
         recent.forEach(d => {
@@ -1021,41 +1027,40 @@
                          timeAgo < 3600 ? `${Math.floor(timeAgo / 60)}m ago` :
                          `${Math.floor(timeAgo / 3600)}h ago`;
 
-          let typeClass = 'badge-down';
-          let typeLabel = d.type;
-          let details = '';
+          // Format symbol nicely (BTC_USDT -> BTC/USDT)
+          const symbol = (d.symbol || '').replace('_', '/');
 
-          if (d.type === 'signal') {
-            typeClass = d.signal > 0 ? 'badge-up' : 'badge-down';
-            typeLabel = d.signal > 0 ? 'BUY Signal' : 'SELL Signal';
-            details = `Signal: ${d.signal.toFixed(2)}, Target: ${d.target_position?.toFixed(4) || 'N/A'}, Delta: $${(Math.abs(d.delta || 0) * (d.price || 0)).toFixed(2)}`;
-          } else if (d.type === 'trade_executed') {
-            typeClass = d.side === 'buy' ? 'badge-up' : 'badge-down';
-            typeLabel = `${d.side.toUpperCase()} Executed`;
-            const makerLabel = d.is_maker ? 'maker' : 'taker';
-            details = `${d.quantity?.toFixed(4) || 'N/A'} @ $${d.fill_price?.toFixed(2) || 'N/A'} (${makerLabel}), Fee: $${d.fee?.toFixed(2) || '0'}`;
-          } else if (d.type === 'skip_min_notional') {
-            typeClass = 'badge-down';
-            typeLabel = 'Skip: Too Small';
-            details = `Delta: $${d.delta_notional?.toFixed(2) || 'N/A'} < $${d.min_required || 100} min`;
-          } else if (d.type === 'skip_cooldown') {
-            typeClass = 'badge-down';
-            typeLabel = 'Skip: Cooldown';
-            details = `${d.cooldown_remaining || 0}s remaining`;
-          }
+          // Side badge
+          const sideClass = d.side === 'buy' ? 'badge-up' : 'badge-down';
+          const sideLabel = (d.side || '').toUpperCase();
+
+          // Quantity
+          const qty = (d.quantity || 0).toFixed(4);
+
+          // Price
+          const price = '$' + (d.fill_price || 0).toFixed(2);
+
+          // Fee
+          const fee = '$' + (d.fee || 0).toFixed(2);
+
+          // Maker/Taker
+          const feeType = d.is_maker ? 'Maker (0%)' : 'Taker (0.1%)';
 
           html += `<tr>
             <td class="muted small">${timeStr}</td>
-            <td class="mono small">${d.bot}</td>
-            <td><span class="badge ${typeClass}" style="font-size: 0.7rem;">${typeLabel}</span></td>
-            <td class="small muted">${details}</td>
+            <td class="mono" style="font-weight: 600;">${symbol}</td>
+            <td><span class="badge ${sideClass}" style="font-size: 0.7rem;">${sideLabel}</span></td>
+            <td class="mono small">${qty}</td>
+            <td class="mono small">${price}</td>
+            <td class="mono small">${fee}</td>
+            <td class="muted small">${feeType}</td>
           </tr>`;
         });
 
         html += '</tbody></table></div>';
 
-        if (items.length > 10) {
-          html += `<div class="muted small mt-2 text-center">Showing 10 of ${items.length} recent decisions</div>`;
+        if (executedTrades.length > 10) {
+          html += `<div class="muted small mt-2 text-center">Showing 10 of ${executedTrades.length} executed trades</div>`;
         }
 
         document.getElementById("decisionsContent").innerHTML = html;
