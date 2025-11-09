@@ -235,7 +235,11 @@ def create_app() -> Flask:
 
     @app.get("/portfolio.json")
     def portfolio():
-        return jsonify(_pm.snapshot())
+        from app.portfolio import CAPITAL_MODE, EXECUTION_MODE
+        snapshot = _pm.snapshot()
+        snapshot['capital_mode'] = CAPITAL_MODE
+        snapshot['execution_mode'] = EXECUTION_MODE
+        return jsonify(snapshot)
 
     @app.get("/fees.json")
     def fee_statistics():
