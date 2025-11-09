@@ -16,7 +16,7 @@ _optimizer_thread: threading.Thread | None = None
 _evolver_thread: threading.Thread | None = None
 _selector = AutoParamSelector()  # default: refresh every 30m
 _auto_rebalance_enabled = False  # Global flag for automatic strategy rebalancing
-_trading_paused = False  # Global flag to pause all trading
+_trading_paused = True  # Global flag to pause all trading (STARTS PAUSED FOR SAFETY)
 
 
 def _ensure_manual_trade_bot():
@@ -566,9 +566,48 @@ def create_app() -> Flask:
 
     @app.get("/api/trading-status")
     def trading_status():
-        """Get current trading pause status."""
+        """Get current trading pause status and capital limit."""
+        from app.storage import store
+        capital_limit = store.get_setting("capital_limit_usdt", default=None)
+
         return jsonify({
-            "trading_paused": _trading_paused
+            "trading_paused": _trading_paused,
+            "capital_limit_usdt": capital_limit
+        })
+
+    @app.post("/api/set-capital-limit")
+    def set_capital_limit():
+        """Set the maximum USDT capital to use for trading."""
+        from app.storage import store
+        data = request.json
+
+        if not data or "capital_limit_usdt" not in data:
+            return jsonify({"error": "capital_limit_usdt required"}), 400
+
+        limit = float(data["capital_limit_usdt"])
+        if limit <= 0:
+            return jsonify({"error": "capital_limit_usdt must be positive"}), 400
+
+        store.set_setting("capital_limit_usdt", limit)
+
+        return jsonify({
+            "success": True,
+            "capital_limit_usdt": limit,
+            "message": f"Capital limit set to ${limit:,.2f} USDT. Restart required to apply."
+        })
+
+    @app.delete("/api/set-capital-limit")
+    def clear_capital_limit():
+        """Clear capital limit (use full balance)."""
+        from app.storage import store
+
+        # Delete the setting by setting it to None
+        store.set_setting("capital_limit_usdt", None)
+
+        return jsonify({
+            "success": True,
+            "capital_limit_usdt": None,
+            "message": "Capital limit removed. Will use 90% of available balance. Restart required to apply."
         })
 
     @app.post("/api/liquidate-all")

@@ -1098,5 +1098,34 @@ class Storage:
             "count": int(row[2]),
         }
 
+    # ── Settings ───────────────────────────────────────────────────────────────
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        """Get a setting value from database. Returns default if not found."""
+        with self._lock:
+            cur = self._conn.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            row = cur.fetchone()
+
+        if not row:
+            return default
+
+        # Try to parse as JSON, fallback to raw string
+        try:
+            return json.loads(row[0])
+        except (json.JSONDecodeError, TypeError):
+            return row[0]
+
+    def set_setting(self, key: str, value: Any) -> None:
+        """Set a setting value in database. Value will be JSON-encoded."""
+        value_json = json.dumps(value) if not isinstance(value, str) else value
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO settings(key, value) VALUES(?,?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value
+                """,
+                (key, value_json)
+            )
+            self._conn.commit()
+
 
 store = Storage(_DB_DEFAULT)  # simple singleton
