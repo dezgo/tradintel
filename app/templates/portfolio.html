@@ -159,6 +159,28 @@
           Only profitable strategies (score > 0) are used.
         </small>
       </div>
+
+      <!-- Execution Mode Control -->
+      <div class="border-top pt-3 mt-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div class="d-flex align-items-center gap-2">
+            <label for="executionModeSelect" class="form-label mb-0" style="font-size: 0.9rem;">Execution Mode:</label>
+            <span class="text-success fw-bold" id="executionModeStatus" style="font-size: 0.85rem;">Binance Testnet</span>
+          </div>
+          <div class="d-flex gap-2">
+            <select class="form-select form-select-sm" id="executionModeSelect" style="width: 180px;">
+              <option value="paper">📝 Paper Trading</option>
+              <option value="binance_testnet" selected>🧪 Binance Testnet</option>
+            </select>
+            <button class="btn btn-sm btn-primary" onclick="setExecutionMode()">Set Mode</button>
+          </div>
+        </div>
+        <small class="d-block mt-2" style="font-size: 0.8rem; color: #aaa;">
+          <strong>⚠️ Restart required after changing execution mode.</strong>
+          Paper mode simulates trades. Testnet uses fake money on Binance testnet.
+          Live trading not yet implemented.
+        </small>
+      </div>
     </div>
   </div>
 
@@ -857,6 +879,19 @@
 
         numStrategiesStatus.textContent = `${numStrategies} strateg${numStrategies === 1 ? 'y' : 'ies'}`;
         numStrategiesInput.value = numStrategies;
+
+        // Update execution mode status and dropdown
+        const executionMode = data.execution_mode || 'binance_testnet';
+        const executionModeStatus = document.getElementById('executionModeStatus');
+        const executionModeSelect = document.getElementById('executionModeSelect');
+
+        const executionModeLabels = {
+          'paper': 'Paper Trading',
+          'binance_testnet': 'Binance Testnet'
+        };
+
+        executionModeStatus.textContent = executionModeLabels[executionMode] || executionMode;
+        executionModeSelect.value = executionMode;
       } catch (err) {
         console.error('Error loading trading status:', err);
       }
@@ -997,6 +1032,41 @@
       } catch (err) {
         console.error('Error setting number of strategies:', err);
         alert('Error setting number of strategies. See console for details.');
+      }
+    }
+
+    async function setExecutionMode() {
+      const select = document.getElementById('executionModeSelect');
+      const mode = select.value;
+
+      const modeNames = {
+        'paper': '📝 Paper Trading (simulated)',
+        'binance_testnet': '🧪 Binance Testnet (fake money)'
+      };
+
+      if (!confirm(`Set execution mode to ${modeNames[mode]}?\n\n⚠️ You MUST restart the app for this to take effect.\n\nPaper mode simulates trades without any exchange connection.\nTestnet uses Binance testnet with fake money.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/set-execution-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ execution_mode: mode })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert(`✅ ${data.message}`);
+          loadTradingStatus();
+          loadExchangeBalance();  // Update the badge
+        } else {
+          alert('Failed to set execution mode: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error setting execution mode:', err);
+        alert('Error setting execution mode. See console for details.');
       }
     }
 

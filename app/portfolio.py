@@ -14,8 +14,15 @@ from app.storage import store
 
 SYMBOLS = ["BTC_USDT", "ETH_USDT", "SOL_USDT"]
 
-# Execution mode: 'paper' or 'binance_testnet'
-EXECUTION_MODE = "binance_testnet"  # Change this to switch between paper and testnet
+# Execution mode: loaded from database setting (default: binance_testnet)
+# Options: 'paper' (simulated), 'binance_testnet' (testnet with fake money)
+# Note: Live trading not yet implemented (would need BinanceLiveExec class)
+def _get_execution_mode() -> str:
+    """Get execution mode from database setting. Defaults to binance_testnet."""
+    mode = store.get_setting("execution_mode", default="binance_testnet")
+    return str(mode)
+
+EXECUTION_MODE = _get_execution_mode()
 
 # Timeframe - loaded from database setting (default: 1d to match optimization/evolution)
 # CRITICAL: This must match the timeframe used for optimization/evolution!

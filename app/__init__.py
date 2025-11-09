@@ -686,12 +686,14 @@ def create_app() -> Flask:
         capital_limit = store.get_setting("capital_limit_usdt", default=None)
         timeframe = store.get_setting("trading_timeframe", default="1d")
         num_strategies = store.get_setting("num_active_strategies", default=5)
+        execution_mode = store.get_setting("execution_mode", default="binance_testnet")
 
         return jsonify({
             "trading_paused": _trading_paused,
             "capital_limit_usdt": capital_limit,
             "trading_timeframe": timeframe,
-            "num_active_strategies": int(num_strategies)
+            "num_active_strategies": int(num_strategies),
+            "execution_mode": execution_mode
         })
 
     @app.post("/api/set-capital-limit")
@@ -772,6 +774,34 @@ def create_app() -> Flask:
             "success": True,
             "num_strategies": num_strategies,
             "message": f"Portfolio will run top {num_strategies} evolved strategies. Restart required to apply."
+        })
+
+    @app.post("/api/set-execution-mode")
+    def set_execution_mode():
+        """Set the execution mode (paper, binance_testnet, or live)."""
+        from app.storage import store
+        data = request.json
+
+        if not data or "execution_mode" not in data:
+            return jsonify({"error": "execution_mode required"}), 400
+
+        mode = str(data["execution_mode"])
+        valid_modes = ["paper", "binance_testnet"]  # Live not yet implemented
+
+        if mode not in valid_modes:
+            return jsonify({"error": f"execution_mode must be one of: {', '.join(valid_modes)}"}), 400
+
+        store.set_setting("execution_mode", mode)
+
+        mode_labels = {
+            "paper": "📝 Paper Trading (simulated)",
+            "binance_testnet": "🧪 Binance Testnet (fake money)"
+        }
+
+        return jsonify({
+            "success": True,
+            "execution_mode": mode,
+            "message": f"Execution mode set to {mode_labels.get(mode, mode)}. Restart required to apply."
         })
 
     @app.post("/api/liquidate-all")
