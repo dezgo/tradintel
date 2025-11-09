@@ -658,8 +658,21 @@ def create_app() -> Flask:
             from app.bots import clear_decision_log
             clear_decision_log()
 
-            # Recalculate initial capital allocation (same as build_portfolio does)
-            total_bots = len(SYMBOLS) * (len(MR_GRID) + len(BO_GRID) + len(TF_GRID))
+            # Delete orphaned bot records (bots in DB but not in current portfolio)
+            current_bot_names = {bot.name for manager in _pm.managers for bot in manager.bots}
+            all_bot_records = store.load_bots()
+            orphaned_bots = [name for name in all_bot_records.keys() if name not in current_bot_names and name != "manual_trade"]
+
+            if orphaned_bots:
+                print(f"\n🧹 Cleaning up {len(orphaned_bots)} orphaned bot records from database...")
+                with store._lock:
+                    for bot_name in orphaned_bots:
+                        store._conn.execute("DELETE FROM bots WHERE name = ?", (bot_name,))
+                    store._conn.commit()
+                print(f"✓ Deleted orphaned bots: {', '.join(orphaned_bots[:5])}{' ...' if len(orphaned_bots) > 5 else ''}\n")
+
+            # Count ACTUAL bots currently running (not hardcoded grid logic)
+            total_bots = sum(len(manager.bots) for manager in _pm.managers)
             initial_capital = _get_capital_per_bot(total_bots)
 
             print(f"\n{'='*60}")
