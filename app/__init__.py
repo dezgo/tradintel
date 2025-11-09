@@ -587,13 +587,15 @@ def create_app() -> Flask:
 
     @app.get("/api/trading-status")
     def trading_status():
-        """Get current trading pause status and capital limit."""
+        """Get current trading pause status, capital limit, and timeframe."""
         from app.storage import store
         capital_limit = store.get_setting("capital_limit_usdt", default=None)
+        timeframe = store.get_setting("trading_timeframe", default="1d")
 
         return jsonify({
             "trading_paused": _trading_paused,
-            "capital_limit_usdt": capital_limit
+            "capital_limit_usdt": capital_limit,
+            "trading_timeframe": timeframe
         })
 
     @app.post("/api/set-capital-limit")
@@ -629,6 +631,30 @@ def create_app() -> Flask:
             "success": True,
             "capital_limit_usdt": None,
             "message": "Capital limit removed. Will use 90% of available balance. Restart required to apply."
+        })
+
+    @app.post("/api/set-timeframe")
+    def set_timeframe():
+        """Set the trading timeframe. CRITICAL: Must match optimization/evolution timeframe!"""
+        from app.storage import store
+        data = request.json
+
+        if not data or "timeframe" not in data:
+            return jsonify({"error": "timeframe required"}), 400
+
+        timeframe = str(data["timeframe"])
+        valid_timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
+
+        if timeframe not in valid_timeframes:
+            return jsonify({"error": f"timeframe must be one of: {', '.join(valid_timeframes)}"}), 400
+
+        store.set_setting("trading_timeframe", timeframe)
+
+        return jsonify({
+            "success": True,
+            "timeframe": timeframe,
+            "message": f"⚠️ Timeframe set to {timeframe}. RESTART REQUIRED. Ensure your strategies were optimized on {timeframe}!",
+            "warning": "Using a different timeframe than optimization will result in poor performance!"
         })
 
     @app.post("/api/liquidate-all")
