@@ -132,6 +132,24 @@ class TradingBot:
             })
             return
 
+        # Check if trading is paused globally
+        try:
+            from app import _trading_paused
+            if _trading_paused:
+                # Still update equity but skip trading
+                self.metrics.avg_price = price
+                self.metrics.equity = self.metrics.cash + self.metrics.pos_qty * price
+                if abs(target_exp) > 0.01:  # Only log if there was a meaningful signal
+                    _log_decision(self.name, self.symbol, "skip_trading_paused", {
+                        "signal": target_exp,
+                        "delta_notional": abs(delta) * price,
+                        "price": price,
+                        "reason": "Trading is globally paused"
+                    })
+                return
+        except ImportError:
+            pass  # If flag not available, continue trading
+
         if abs(delta) > 1e-9:
             side = "buy" if delta > 0 else "sell"
             trade_qty = abs(delta)

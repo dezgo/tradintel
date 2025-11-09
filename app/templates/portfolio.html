@@ -79,6 +79,23 @@
     </div>
   </div>
 
+  <!-- Trading Controls -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+          <h2 class="h6 mb-0">Trading Controls</h2>
+          <span class="badge" id="tradingStatusBadge" style="font-size: 0.7rem;">LOADING</span>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-warning" id="pauseBtn" onclick="pauseTrading()">⏸ Pause Trading</button>
+          <button class="btn btn-sm btn-success" id="resumeBtn" onclick="resumeTrading()" style="display: none;">▶️ Resume Trading</button>
+          <button class="btn btn-sm btn-danger" onclick="liquidateAll()">🚨 Emergency Liquidate</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Exchange Balance -->
   <div class="card mb-3" id="exchangeBalanceCard" style="display: none;">
     <div class="card-body">
@@ -686,6 +703,123 @@
       }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Trading Controls
+    // ─────────────────────────────────────────────────────────────────────────
+
+    async function loadTradingStatus() {
+      try {
+        const res = await fetch('/api/trading-status', { cache: "no-store" });
+        const data = await res.json();
+
+        const badge = document.getElementById('tradingStatusBadge');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const resumeBtn = document.getElementById('resumeBtn');
+
+        if (data.trading_paused) {
+          badge.textContent = 'PAUSED';
+          badge.className = 'badge badge-down';
+          pauseBtn.style.display = 'none';
+          resumeBtn.style.display = 'inline-block';
+        } else {
+          badge.textContent = 'ACTIVE';
+          badge.className = 'badge badge-up';
+          pauseBtn.style.display = 'inline-block';
+          resumeBtn.style.display = 'none';
+        }
+      } catch (err) {
+        console.error('Error loading trading status:', err);
+      }
+    }
+
+    async function pauseTrading() {
+      if (!confirm('Pause all trading?\n\nBots will stop executing new trades but keep current positions.')) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/pause-trading', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert('✅ Trading paused\n\nNo new trades will be executed.');
+          loadTradingStatus();
+        } else {
+          alert('Failed to pause trading: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error pausing trading:', err);
+        alert('Error pausing trading. See console for details.');
+      }
+    }
+
+    async function resumeTrading() {
+      if (!confirm('Resume trading?\n\nBots will start executing trades again.')) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/resume-trading', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert('✅ Trading resumed\n\nBots will execute trades normally.');
+          loadTradingStatus();
+        } else {
+          alert('Failed to resume trading: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error resuming trading:', err);
+        alert('Error resuming trading. See console for details.');
+      }
+    }
+
+    async function liquidateAll() {
+      if (!confirm('🚨 EMERGENCY LIQUIDATION 🚨\n\nThis will:\n• Close ALL open positions immediately\n• Pause all trading\n• Convert all holdings to USDT\n\nOnly use in emergency situations!\n\nAre you sure?')) {
+        return;
+      }
+
+      if (!confirm('This action will close ALL positions at market prices.\n\nAre you ABSOLUTELY sure?')) {
+        return;
+      }
+
+      try {
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = 'Liquidating...';
+
+        const res = await fetch('/api/liquidate-all', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          const msg = `✅ Emergency liquidation complete!\n\nPositions closed: ${data.positions_closed}\nTotal value: $${data.total_value.toFixed(2)}\n\nTrading is now PAUSED.\n\nRefreshing page...`;
+          alert(msg);
+          location.reload();
+        } else {
+          alert('Liquidation failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error liquidating:', err);
+        alert('Error during liquidation. See console for details.');
+      } finally {
+        const btn = event.target;
+        btn.disabled = false;
+        btn.textContent = '🚨 Emergency Liquidate';
+      }
+    }
+
     async function resetForTesting() {
       if (!confirm('⚠️ WARNING: This will DELETE ALL trades, positions, and reset all bots!\n\nThis action cannot be undone.\n\nOnly use this for testing. Are you sure?')) {
         return;
@@ -712,6 +846,8 @@
           const totalEquity = data.total_equity ? `$${data.total_equity.toFixed(2)}` : 'N/A';
           alert(`✅ Reset complete!\n\nReset ${data.bots_reset} bots\nCapital per bot: ${capitalPerBot}\nTotal equity: ${totalEquity}\n\nRefreshing page...`);
           location.reload();
+        } else if (data.action_required === 'pause_or_liquidate') {
+          alert(`⚠️ Reset blocked for safety\n\n${data.message}\n\nPlease pause trading or liquidate all positions first.`);
         } else {
           alert('Reset failed: ' + (data.error || 'Unknown error'));
         }
@@ -1112,7 +1248,8 @@
       loadFees(),
       loadExchangeBalance(),
       loadDecisions(),
-      updateManualTradingInfo()  // Initialize manual trading info
+      updateManualTradingInfo(),  // Initialize manual trading info
+      loadTradingStatus()  // Initialize trading controls
     ]).then(() => {
       if (autoChk.checked) startLoop();
     });
