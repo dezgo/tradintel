@@ -138,8 +138,8 @@
                 <div class="mono" style="font-size: 1.1rem; font-weight: 600;" id="manualCurrentPrice">-</div>
               </div>
               <div class="col-6">
-                <div class="muted small">Available USDT</div>
-                <div class="mono" style="font-size: 1.1rem; font-weight: 600; color: var(--green);" id="manualAvailableUSDT">-</div>
+                <div class="muted small" id="manualBalanceLabel">Available Balance</div>
+                <div class="mono" style="font-size: 1.1rem; font-weight: 600; color: var(--green);" id="manualAvailableBalance">-</div>
               </div>
             </div>
           </div>
@@ -922,8 +922,9 @@
     // Manual Trading Functions
     // ─────────────────────────────────────────────────────────────────────────
 
-    // Update UI when symbol or order type changes
+    // Update UI when symbol, side, or order type changes
     document.getElementById('manualSymbol').addEventListener('change', updateManualTradingInfo);
+    document.getElementById('manualSide').addEventListener('change', updateManualTradingInfo);
     document.getElementById('manualOrderType').addEventListener('change', function() {
       const orderType = this.value;
       const limitPriceGroup = document.getElementById('limitPriceGroup');
@@ -951,13 +952,28 @@
           }
         }
 
-        // Fetch available USDT balance
+        // Determine which balance to show based on side
+        const side = document.getElementById('manualSide').value;
+        const [baseCurrency, quoteCurrency] = symbol.split('_'); // e.g., "BTC", "USDT"
+
+        // BUY: spending quote currency (USDT), SELL: spending base currency (BTC/ETH/SOL/USDC)
+        const relevantCurrency = side === 'buy' ? quoteCurrency : baseCurrency;
+
+        // Update label
+        document.getElementById('manualBalanceLabel').textContent = `Available ${relevantCurrency}`;
+
+        // Fetch and display balance
         const balanceRes = await fetch('/exchange-balance.json', { cache: "no-store" });
         const balanceData = await balanceRes.json();
 
-        const usdtBalance = balanceData.balances.find(b => b.asset === 'USDT');
-        if (usdtBalance) {
-          document.getElementById('manualAvailableUSDT').textContent = `$${usdtBalance.total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        const balance = balanceData.balances.find(b => b.asset === relevantCurrency);
+        if (balance) {
+          const displayValue = relevantCurrency === 'USDT' || relevantCurrency === 'USDC'
+            ? `$${balance.total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
+            : balance.total.toLocaleString('en-US', {minimumFractionDigits: 8, maximumFractionDigits: 8});
+          document.getElementById('manualAvailableBalance').textContent = displayValue;
+        } else {
+          document.getElementById('manualAvailableBalance').textContent = '0.00';
         }
 
         // Update quantity hint
