@@ -587,15 +587,17 @@ def create_app() -> Flask:
 
     @app.get("/api/trading-status")
     def trading_status():
-        """Get current trading pause status, capital limit, and timeframe."""
+        """Get current trading pause status, capital limit, timeframe, and portfolio config."""
         from app.storage import store
         capital_limit = store.get_setting("capital_limit_usdt", default=None)
         timeframe = store.get_setting("trading_timeframe", default="1d")
+        num_strategies = store.get_setting("num_active_strategies", default=5)
 
         return jsonify({
             "trading_paused": _trading_paused,
             "capital_limit_usdt": capital_limit,
-            "trading_timeframe": timeframe
+            "trading_timeframe": timeframe,
+            "num_active_strategies": int(num_strategies)
         })
 
     @app.post("/api/set-capital-limit")
@@ -655,6 +657,27 @@ def create_app() -> Flask:
             "timeframe": timeframe,
             "message": f"⚠️ Timeframe set to {timeframe}. RESTART REQUIRED. Ensure your strategies were optimized on {timeframe}!",
             "warning": "Using a different timeframe than optimization will result in poor performance!"
+        })
+
+    @app.post("/api/set-num-strategies")
+    def set_num_strategies():
+        """Set number of active strategies to run in portfolio."""
+        from app.storage import store
+        data = request.json
+
+        if not data or "num_strategies" not in data:
+            return jsonify({"error": "num_strategies required"}), 400
+
+        num_strategies = int(data["num_strategies"])
+        if num_strategies < 1 or num_strategies > 20:
+            return jsonify({"error": "num_strategies must be between 1 and 20"}), 400
+
+        store.set_setting("num_active_strategies", num_strategies)
+
+        return jsonify({
+            "success": True,
+            "num_strategies": num_strategies,
+            "message": f"Portfolio will run top {num_strategies} evolved strategies. Restart required to apply."
         })
 
     @app.post("/api/liquidate-all")
