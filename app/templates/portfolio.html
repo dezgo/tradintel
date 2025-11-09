@@ -588,23 +588,64 @@
           return;
         }
 
-        // Display balances in a grid
-        const balanceHtml = `
-          <div class="row g-2">
-            ${data.balances.map(bal => `
-              <div class="col-6 col-md-3">
-                <div style="background: var(--page-bg); border-radius: 6px; padding: 0.75rem;">
-                  <div class="muted small">${bal.asset}</div>
-                  <div class="mono" style="font-size: 1.25rem; font-weight: 600;">${bal.total.toFixed(8)}</div>
-                  <div class="muted" style="font-size: 0.7rem;">
-                    Free: ${bal.free.toFixed(8)}
-                    ${bal.locked > 0 ? `<br>Locked: ${bal.locked.toFixed(8)}` : ''}
-                  </div>
+        // Prioritize coins we're trading and stablecoins
+        const priorityCoins = ['BTC', 'ETH', 'SOL', 'USDT', 'BUSD', 'BNB', 'USDC'];
+        const priority = [];
+        const others = [];
+
+        data.balances.forEach(bal => {
+          if (priorityCoins.includes(bal.asset)) {
+            priority.push(bal);
+          } else {
+            others.push(bal);
+          }
+        });
+
+        // Sort priority by our list order
+        priority.sort((a, b) => priorityCoins.indexOf(a.asset) - priorityCoins.indexOf(b.asset));
+
+        // Render priority balances
+        let balanceHtml = `<div class="row g-2">`;
+
+        priority.forEach(bal => {
+          balanceHtml += `
+            <div class="col-6 col-md-3">
+              <div style="background: var(--page-bg); border-radius: 6px; padding: 0.75rem;">
+                <div class="muted small">${bal.asset}</div>
+                <div class="mono" style="font-size: 1.25rem; font-weight: 600;">${bal.total.toFixed(8)}</div>
+                <div class="muted" style="font-size: 0.7rem;">
+                  Free: ${bal.free.toFixed(8)}
+                  ${bal.locked > 0 ? `<br>Locked: ${bal.locked.toFixed(8)}` : ''}
                 </div>
               </div>
-            `).join('')}
-          </div>
-        `;
+            </div>
+          `;
+        });
+
+        balanceHtml += `</div>`;
+
+        // Add collapsible "show more" for other coins
+        if (others.length > 0) {
+          balanceHtml += `
+            <div class="mt-3">
+              <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#otherBalances" style="padding: 0;">
+                + ${others.length} other coin${others.length > 1 ? 's' : ''} (click to show)
+              </button>
+              <div class="collapse mt-2" id="otherBalances">
+                <div class="row g-2">
+                  ${others.map(bal => `
+                    <div class="col-6 col-md-3">
+                      <div style="background: var(--page-bg); border-radius: 6px; padding: 0.5rem;">
+                        <div class="muted small">${bal.asset}</div>
+                        <div class="mono small">${bal.total.toFixed(8)}</div>
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            </div>
+          `;
+        }
 
         content.innerHTML = balanceHtml;
 
