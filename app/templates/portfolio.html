@@ -389,6 +389,7 @@
     let currentPrices = {}; // { "BTC_USDT": {price, ts}, ... }
     let allWorkers = [];    // Flattened list of all workers with their strategy names
     let openPositions = [];
+    let availableStrategies = [];  // List of all available strategies (saved + evolved + hardcoded)
 
     function badge(val) {
       const c = Number(val);
@@ -500,6 +501,12 @@
         const scoreClass = w.score >= 0 ? 'badge-up' : 'badge-down';
         const sign = w.score >= 0 ? '+' : '';
 
+        // Build strategy dropdown options
+        const strategyOptions = availableStrategies.map(strat => {
+          const selected = strat.id === w.strategyType || strat.name.includes(w.strategyType) ? 'selected' : '';
+          return `<option value="${strat.id}" ${selected}>${strat.name}</option>`;
+        }).join('');
+
         return `
           <tr style="border-bottom: 1px solid var(--panel-border);">
             <td class="py-2">${statusDot}</td>
@@ -510,10 +517,8 @@
             <td class="py-2"><span class="badge ${scoreClass}">${sign}${pct(w.score)}</span></td>
             <td class="py-2 mono">${w.trades}</td>
             <td class="py-2">
-              <select class="form-select form-select-sm strategy-change" data-worker="${w.name}" style="width: 150px; font-size: 0.75rem;">
-                <option value="MeanReversion" ${w.strategyType === 'MeanReversion' ? 'selected' : ''}>Mean Reversion</option>
-                <option value="Breakout" ${w.strategyType === 'Breakout' ? 'selected' : ''}>Breakout</option>
-                <option value="TrendFollow" ${w.strategyType === 'TrendFollow' ? 'selected' : ''}>Trend Follow</option>
+              <select class="form-select form-select-sm strategy-change" data-worker="${w.name}" style="width: 250px; font-size: 0.75rem;">
+                ${strategyOptions || '<option>No strategies available</option>'}
               </select>
             </td>
           </tr>
@@ -657,6 +662,17 @@
       (data.items || []).forEach(p => { currentPrices[p.symbol] = { price: p.price, ts: p.ts }; });
     }
 
+    async function loadAvailableStrategies() {
+      try {
+        const res = await fetch('/api/available-strategies', { cache: "no-store" });
+        const data = await res.json();
+        availableStrategies = data.strategies || [];
+      } catch (err) {
+        console.error('Error loading available strategies:', err);
+        availableStrategies = [];
+      }
+    }
+
     async function load() {
       const res = await fetch('/portfolio.json', { cache: "no-store" });
       const snap = await res.json();
@@ -665,6 +681,13 @@
       allWorkers = [];
       snap.strategies.forEach(s => {
         s.bots.forEach(b => {
+          // Infer strategy type from bot name (legacy logic, will be replaced by DB field)
+          let strategyType = 'GenomeStrategy';  // Default for evolved strategies
+          if (b.name.startsWith('mr_')) strategyType = 'MeanReversion';
+          else if (b.name.startsWith('bo_')) strategyType = 'Breakout';
+          else if (b.name.startsWith('tf_')) strategyType = 'TrendFollow';
+          else if (b.name.startsWith('evolved_')) strategyType = 'EvolvedStrategy';
+
           allWorkers.push({
             name: b.name,
             symbol: b.symbol,
@@ -674,9 +697,7 @@
             trades: b.trades_db ?? b.trades,
             allocation: 0,
             strategyName: s.name,
-            strategyType: b.name.startsWith('mr_') ? 'MeanReversion'
-                        : b.name.startsWith('bo_') ? 'Breakout'
-                        : 'TrendFollow'
+            strategyType: strategyType
           });
         });
       });
@@ -1498,7 +1519,8 @@
       loadExchangeBalance(),
       loadDecisions(),
       updateManualTradingInfo(),  // Initialize manual trading info
-      loadTradingStatus()  // Initialize trading controls
+      loadTradingStatus(),  // Initialize trading controls
+      loadAvailableStrategies()  // Load available strategies for dropdown
     ]).then(() => {
       if (autoChk.checked) startLoop();
     });
