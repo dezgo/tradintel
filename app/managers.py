@@ -26,6 +26,7 @@ class StrategyManager:
                 strategy=type(b.strategy).__name__,
                 params=(b.strategy.to_params() if hasattr(b.strategy, "to_params") else {}),
                 allocation=b.allocation,
+                starting_allocation=b.starting_allocation,
                 cash=b.metrics.cash,
                 pos_qty=b.metrics.pos_qty,
                 avg_price=b.metrics.avg_price,
@@ -53,6 +54,7 @@ class StrategyManager:
                 strategy=type(b.strategy).__name__,
                 params=(b.strategy.to_params() if hasattr(b.strategy, "to_params") else {}),
                 allocation=b.allocation,
+                starting_allocation=b.starting_allocation,
                 cash=b.metrics.cash,
                 pos_qty=b.metrics.pos_qty,
                 avg_price=b.metrics.avg_price,
@@ -93,7 +95,42 @@ class PortfolioManager:
 
     def snapshot(self) -> Dict:
         counts = store.trade_counts()  # DB authoritative counts
+
+        # Calculate portfolio-level metrics
+        all_bots = [b for m in self.managers for b in m.bots]
+        # Use starting_allocation for P&L baseline (FIXED, never changes)
+        # Use allocation for rebalancing (DYNAMIC, changes with rebalancing)
+        total_starting_capital = sum(b.starting_allocation for b in all_bots)
+        total_equity = sum(b.metrics.equity for b in all_bots)
+        total_pnl = total_equity - total_starting_capital
+
+        # Calculate realized P&L from database (excluding stablecoin conversions)
+        realized_pnl = store.calculate_realized_pnl(exclude_stablecoin_pairs=True)
+        unrealized_pnl = total_pnl - realized_pnl
+
+        # Calculate today's P&L (Sydney timezone - midnight to now)
+        todays_pnl = store.calculate_todays_pnl()
+
+        # Debug logging
+        print(f"[Portfolio Metrics Debug]")
+        print(f"  Starting Capital (FIXED baseline): ${total_starting_capital:.2f}")
+        print(f"  Current Allocation (rebalanced): ${sum(b.allocation for b in all_bots):.2f}")
+        print(f"  Current Value (bot equities): ${total_equity:.2f}")
+        print(f"  Total P&L: ${total_pnl:.2f}")
+        print(f"  Realized P&L (from DB): ${realized_pnl:.2f}")
+        print(f"  Unrealized P&L: ${unrealized_pnl:.2f}")
+        print(f"  Today's P&L: ${todays_pnl:.2f}")
+
         return {
+            "portfolio_metrics": {
+                "starting_capital": total_starting_capital,
+                "current_value": total_equity,
+                "total_pnl": total_pnl,
+                "realized_pnl": realized_pnl,
+                "unrealized_pnl": unrealized_pnl,
+                "total_return_pct": (total_pnl / total_starting_capital * 100) if total_starting_capital > 0 else 0,
+                "todays_pnl": todays_pnl,
+            },
             "strategies": [
                 {
                     "name": m.name,

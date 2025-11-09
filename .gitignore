@@ -4,7 +4,7 @@ __pycache__/
 *.pyd
 *.cpython-*
 .venv/
-trading.db
+trading.db*
 .env
 
 # IDE

@@ -2,13 +2,28 @@
 
 {% block title %}TradingBot — Portfolio{% endblock %}
 {% block page_title %}TradingBot — Portfolio{% endblock %}
-
 {% set active_page = 'portfolio' %}
 
 {% block extra_styles %}
-  /* Portfolio-specific badge styles */
+  /* Badges (stronger contrast) */
   .badge-up   { background: #062a1a; color: var(--text); border: 1px solid var(--green); }
   .badge-down { background: #2c0b0b; color: var(--text); border: 1px solid var(--red); }
+  .badge-active { background: #1e3a8a; color: var(--text); border: 1px solid var(--blue); }
+
+  /* Section headers & muted bits */
+  .section-title { color: var(--text); opacity: 0.95; }
+
+  /* Custom select styling */
+  .form-select-sm { background-color: var(--panel); color: var(--text); border-color: var(--panel-border); }
+  .form-select-sm:focus { background-color: var(--panel); color: var(--text); border-color: var(--blue); }
+
+  /* Worker status indicators */
+  .status-active { color: var(--green); }
+  .status-idle { color: var(--text-muted); }
+
+  /* Collapsible sections */
+  .collapse-toggle { cursor: pointer; user-select: none; }
+  .collapse-toggle:hover { opacity: 0.8; }
 {% endblock %}
 
 {% block extra_nav %}
@@ -26,29 +41,365 @@
 {% endblock %}
 
 {% block content %}
-  <div id="summary" class="mb-3"></div>
-  <div id="prices" class="mb-3"></div>
 
-  <!-- Symbol filter shared by both cards -->
-  <div class="card mb-3">
-    <div class="card-body d-flex flex-wrap gap-3 align-items-center">
-      <h2 class="h6 mb-0 section-title">Filter</h2>
-      <div class="d-flex align-items-center gap-2">
-        <label for="symFilter" class="muted small">Symbol</label>
-        <select id="symFilter" class="form-select form-select-sm" style="width: 160px;">
-          <option value="">All</option>
-          <option>BTC_USDT</option>
-          <option>ETH_USDT</option>
-          <option>SOL_USDT</option>
-        </select>
+  <!-- KPI Cards -->
+  <div class="row g-2 g-md-3 mb-3">
+    <div class="col-6 col-md-3">
+      <div class="card text-center" style="padding: 1.5rem 1rem;">
+        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Current Value</div>
+        <div class="mono" style="font-size: 2rem; font-weight: 600; color: var(--text);" id="kpiCurrentValue">$0</div>
+        <div class="muted small" style="margin-top: 0.5rem; font-size: 0.7rem;">Started: <span id="kpiStartingCapital">$0</span></div>
       </div>
-      <div class="ms-auto mono small muted" id="filterNote"></div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card text-center" style="padding: 1.5rem 1rem;">
+        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Total P&L</div>
+        <div class="mono" style="font-size: 2rem; font-weight: 600;" id="kpiTotalPnl">$0</div>
+        <div class="small" style="margin-top: 0.5rem; font-size: 0.7rem;">
+          <span class="muted">Return:</span> <span id="kpiTotalReturn">0%</span> •
+          <span class="muted">Realized:</span> <span id="kpiRealizedPnl">$0</span>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card text-center" style="padding: 1.5rem 1rem;">
+        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Today's P&L</div>
+        <div class="mono" style="font-size: 2rem; font-weight: 600;" id="kpiTodaysPnl">$0</div>
+        <div class="muted small" style="margin-top: 0.5rem; font-size: 0.7rem;">
+          <span id="kpiPositions">0</span> positions • <span id="kpiTrades">0</span> trades
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card text-center" style="padding: 1.5rem 1rem;">
+        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Active Workers</div>
+        <div class="mono" style="font-size: 2rem; font-weight: 600; color: var(--text);" id="kpiWorkers">0</div>
+        <div class="muted small" style="margin-top: 0.5rem; font-size: 0.7rem;">of <span id="kpiTotalWorkers">0</span> total</div>
+      </div>
     </div>
   </div>
 
-  <div id="positions" class="mb-3"></div>
-  <div id="roundtrips" class="mb-3"></div>
-  <div id="strategies" class="row g-3"></div>
+  <!-- Trading Controls -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div class="d-flex align-items-center gap-2">
+          <h2 class="h6 mb-0">Trading Controls</h2>
+          <span class="badge" id="tradingStatusBadge" style="font-size: 0.7rem;">LOADING</span>
+          <span class="badge badge-info" id="exchangeModeBadge" style="font-size: 0.7rem; background: #4a5568; color: #e2e8f0;">LOADING</span>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-warning" id="pauseBtn" onclick="pauseTrading()">⏸ Pause Trading</button>
+          <button class="btn btn-sm btn-success" id="resumeBtn" onclick="resumeTrading()" style="display: none;">▶️ Resume Trading</button>
+          <button class="btn btn-sm btn-danger" onclick="liquidateAll()">🚨 Emergency Liquidate</button>
+        </div>
+      </div>
+
+      <!-- Capital Limit Control -->
+      <div class="border-top pt-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div class="d-flex align-items-center gap-2">
+            <label for="capitalLimitInput" class="form-label mb-0" style="font-size: 0.9rem;">Capital Limit (USDT):</label>
+            <span class="text-muted" id="capitalLimitStatus" style="font-size: 0.85rem;">Not set (using 90% of balance)</span>
+          </div>
+          <div class="d-flex gap-2">
+            <input type="number" class="form-control form-control-sm" id="capitalLimitInput" placeholder="e.g., 5000" style="width: 120px;" step="100" min="100">
+            <button class="btn btn-sm btn-primary" onclick="setCapitalLimit()">Set Limit</button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="clearCapitalLimit()">Clear</button>
+          </div>
+        </div>
+        <small class="d-block mt-2" style="font-size: 0.8rem; color: #aaa;">
+          <strong>⚠️ Restart required after changing capital limit.</strong> Limits how much USDT is allocated for trading (e.g., $5k out of $100k balance).
+        </small>
+      </div>
+
+      <!-- Timeframe Control -->
+      <div class="border-top pt-3 mt-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div class="d-flex align-items-center gap-2">
+            <label for="timeframeSelect" class="form-label mb-0" style="font-size: 0.9rem;">Trading Timeframe:</label>
+            <span class="text-success fw-bold" id="timeframeStatus" style="font-size: 0.85rem;">1d (Daily)</span>
+          </div>
+          <div class="d-flex gap-2">
+            <select class="form-select form-select-sm" id="timeframeSelect" style="width: 120px;">
+              <option value="1m">1m (1 minute)</option>
+              <option value="5m">5m (5 minutes)</option>
+              <option value="15m">15m (15 minutes)</option>
+              <option value="30m">30m (30 minutes)</option>
+              <option value="1h">1h (1 hour)</option>
+              <option value="4h">4h (4 hours)</option>
+              <option value="1d" selected>1d (Daily)</option>
+              <option value="1w">1w (Weekly)</option>
+            </select>
+            <button class="btn btn-sm btn-primary" onclick="setTimeframe()">Set Timeframe</button>
+          </div>
+        </div>
+        <small class="d-block mt-2" style="font-size: 0.8rem; color: #ff6b6b;">
+          <strong>🚨 CRITICAL: Restart required after changing timeframe.</strong><br>
+          Your strategies were optimized on a specific timeframe. Using a different timeframe will result in poor performance!<br>
+          Default is 1d (daily) to match optimization/evolution. Only change if you've re-optimized on the new timeframe.
+        </small>
+      </div>
+
+      <!-- Active Strategies Control -->
+      <div class="border-top pt-3 mt-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div class="d-flex align-items-center gap-2">
+            <label for="numStrategiesInput" class="form-label mb-0" style="font-size: 0.9rem;">Active Strategies:</label>
+            <span class="text-success fw-bold" id="numStrategiesStatus" style="font-size: 0.85rem;">5 strategies</span>
+          </div>
+          <div class="d-flex gap-2">
+            <input type="number" class="form-control form-control-sm" id="numStrategiesInput" placeholder="e.g., 5" style="width: 120px;" step="1" min="1" max="20" value="5">
+            <button class="btn btn-sm btn-primary" onclick="setNumStrategies()">Set Strategies</button>
+          </div>
+        </div>
+        <small class="d-block mt-2" style="font-size: 0.8rem; color: #aaa;">
+          <strong>⚠️ Restart required after changing strategy count.</strong>
+          Portfolio will run the top N evolved strategies from genetic algorithm (sorted by performance score).
+          Only profitable strategies (score > 0) are used.
+        </small>
+      </div>
+
+      <!-- Execution Mode Control -->
+      <div class="border-top pt-3 mt-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div class="d-flex align-items-center gap-2">
+            <label for="executionModeSelect" class="form-label mb-0" style="font-size: 0.9rem;">Execution Mode:</label>
+            <span class="text-success fw-bold" id="executionModeStatus" style="font-size: 0.85rem;">Binance Testnet</span>
+          </div>
+          <div class="d-flex gap-2">
+            <select class="form-select form-select-sm" id="executionModeSelect" style="width: 180px;">
+              <option value="paper">📝 Paper Trading</option>
+              <option value="binance_testnet" selected>🧪 Binance Testnet</option>
+            </select>
+            <button class="btn btn-sm btn-primary" onclick="setExecutionMode()">Set Mode</button>
+          </div>
+        </div>
+        <small class="d-block mt-2" style="font-size: 0.8rem; color: #aaa;">
+          <strong>⚠️ Restart required after changing execution mode.</strong>
+          Paper mode simulates trades. Testnet uses fake money on Binance testnet.
+          Live trading not yet implemented.
+        </small>
+      </div>
+    </div>
+  </div>
+
+  <!-- Exchange Balance -->
+  <div class="card mb-3" id="exchangeBalanceCard" style="display: none;">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h6 mb-0">Exchange Balance <span class="badge badge-active" id="executionMode" style="font-size: 0.7rem; margin-left: 0.5rem;">LOADING</span></h2>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-secondary" onclick="loadExchangeBalance()">↻ Refresh</button>
+          <button class="btn btn-sm btn-outline-danger" onclick="resetForTesting()" id="resetBtn">⚠ Reset All Data</button>
+        </div>
+      </div>
+      <div id="exchangeBalanceContent"></div>
+    </div>
+  </div>
+
+  <!-- Manual Trading -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h2 class="h6 mb-3">Manual Trading</h2>
+      <div class="row g-3">
+        <!-- Symbol & Side -->
+        <div class="col-md-6">
+          <label class="form-label small">Symbol</label>
+          <select class="form-select form-select-sm" id="manualSymbol">
+            <option value="BTC_USDT">BTC/USDT</option>
+            <option value="ETH_USDT">ETH/USDT</option>
+            <option value="SOL_USDT">SOL/USDT</option>
+            <option value="USDC_USDT">USDC/USDT (Convert stablecoins)</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small">Side</label>
+          <select class="form-select form-select-sm" id="manualSide">
+            <option value="buy">Buy</option>
+            <option value="sell">Sell</option>
+          </select>
+        </div>
+
+        <!-- Order Type -->
+        <div class="col-md-6">
+          <label class="form-label small">Order Type</label>
+          <select class="form-select form-select-sm" id="manualOrderType">
+            <option value="market">Market (Instant)</option>
+            <option value="limit">Limit (Set Price)</option>
+          </select>
+        </div>
+
+        <!-- Quantity -->
+        <div class="col-md-6">
+          <label class="form-label small">Quantity (in crypto)</label>
+          <input type="number" class="form-control form-control-sm" id="manualQuantity" placeholder="0.001" step="0.00000001" min="0" />
+          <div class="form-text" id="quantityHint">≈ $0.00</div>
+        </div>
+
+        <!-- Limit Price (conditional) -->
+        <div class="col-md-6" id="limitPriceGroup" style="display: none;">
+          <label class="form-label small">Limit Price (USDT)</label>
+          <input type="number" class="form-control form-control-sm" id="manualLimitPrice" placeholder="42000.00" step="0.01" min="0" />
+        </div>
+
+        <!-- Current Info -->
+        <div class="col-12">
+          <div class="p-2" style="background: var(--page-bg); border-radius: 6px;">
+            <div class="row g-2 text-center">
+              <div class="col-6">
+                <div class="muted small">Current Price</div>
+                <div class="mono" style="font-size: 1.1rem; font-weight: 600;" id="manualCurrentPrice">-</div>
+              </div>
+              <div class="col-6">
+                <div class="muted small" id="manualBalanceLabel">Available Balance</div>
+                <div class="mono" style="font-size: 1.1rem; font-weight: 600; color: var(--green);" id="manualAvailableBalance">-</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Execute Button -->
+        <div class="col-12">
+          <button class="btn btn-primary w-100" id="executeTradeBtn" onclick="executeManualTrade()">
+            Execute Trade
+          </button>
+        </div>
+
+        <!-- Status Message -->
+        <div class="col-12">
+          <div id="manualTradeStatus"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Trades -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h6 mb-0">Recent Trades <span class="badge badge-active" id="decisionsCount" style="font-size: 0.7rem; margin-left: 0.5rem;">0</span></h2>
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadDecisions()">↻ Refresh</button>
+      </div>
+      <div id="decisionsContent">
+        <div class="muted small">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Strategy Performance -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h6 mb-0">Strategy Performance</h2>
+        <button type="button" class="btn btn-link btn-sm" data-bs-toggle="modal" data-bs-target="#workersModal">View All Workers →</button>
+      </div>
+      <div id="strategyBars"></div>
+    </div>
+  </div>
+
+  <!-- Auto-Rebalance -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="autoRebalanceToggle" />
+            <label class="form-check-label small" for="autoRebalanceToggle">
+              Auto-assign to best strategy
+            </label>
+          </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <span class="muted small" id="rebalanceStatus"></span>
+          <button class="btn btn-sm btn-primary" id="manualRebalanceBtn">Rebalance Now</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fee Statistics -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h2 class="h6 mb-3">Trading Fees</h2>
+      <div class="row g-2">
+        <div class="col-6 col-md-3">
+          <div class="text-center p-2" style="background: var(--page-bg); border-radius: 6px;">
+            <div class="muted small mb-1">Total Fees</div>
+            <div class="mono" style="font-size: 1.25rem; font-weight: 600; color: var(--red);" id="feesTotal">$0</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="text-center p-2" style="background: var(--page-bg); border-radius: 6px;">
+            <div class="muted small mb-1">Maker Ratio</div>
+            <div class="mono" style="font-size: 1.25rem; font-weight: 600; color: var(--green);" id="feesMakerRatio">0%</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="text-center p-2" style="background: var(--page-bg); border-radius: 6px;">
+            <div class="muted small mb-1">Fee Rate</div>
+            <div class="mono" style="font-size: 1.25rem; font-weight: 600;" id="feesRate">0%</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="text-center p-2" style="background: var(--page-bg); border-radius: 6px;">
+            <div class="muted small mb-1">Volume</div>
+            <div class="mono" style="font-size: 1.25rem; font-weight: 600; color: var(--text);" id="feesVolume">$0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Activity -->
+  <div class="row g-2 g-md-3">
+    <div class="col-12 col-md-6">
+      <div class="card">
+        <div class="card-body">
+          <h2 class="h6 mb-3">Open Positions <span class="muted small" id="posCount">(0)</span></h2>
+          <div id="recentPositions"></div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-6">
+      <div class="card">
+        <div class="card-body">
+          <h2 class="h6 mb-3">Recent Trades <span class="muted small" id="tradesCount">(0)</span></h2>
+          <div id="recentTrades"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Workers Modal -->
+  <div class="modal fade" id="workersModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content" style="background: var(--panel); color: var(--text); border: 1px solid var(--panel-border);">
+        <div class="modal-header" style="border-bottom: 1px solid var(--panel-border);">
+          <h5 class="modal-title">All Workers</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3 d-flex gap-2 flex-wrap">
+            <select id="filterStrategy" class="form-select form-select-sm" style="width: 160px;">
+              <option value="">All Strategies</option>
+              <option value="MeanReversion">Mean Reversion</option>
+              <option value="Breakout">Breakout</option>
+              <option value="TrendFollow">Trend Follow</option>
+            </select>
+            <select id="filterSymbol" class="form-select form-select-sm" style="width: 140px;">
+              <option value="">All Symbols</option>
+              <option>BTC_USDT</option>
+              <option>ETH_USDT</option>
+              <option>SOL_USDT</option>
+            </select>
+          </div>
+          <div id="workersTable"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -58,163 +409,10 @@
     const fmtTs = (ts) => new Date(ts * 1000).toLocaleString();
     const money = (x) => "$" + Number(x).toFixed(2);
 
-    // --- Live prices ---
     let currentPrices = {}; // { "BTC_USDT": {price, ts}, ... }
-
-    function renderPrices(items) {
-      const rows = items.map(p => `
-        <tr>
-          <td class="mono">${p.symbol}</td>
-          <td class="mono">${p.price == null ? "-" : Number(p.price).toFixed(4)}</td>
-          <td class="mono">${p.ts ? new Date(p.ts*1000).toLocaleTimeString() : "-"}</td>
-        </tr>
-      `).join("");
-
-      document.getElementById("prices").innerHTML = `
-        <div class="card"><div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h2 class="h5 mb-0 section-title">Live Prices</h2>
-            <div class="mono small muted">${new Date().toLocaleTimeString()}</div>
-          </div>
-          <div class="table-responsive">
-            <table class="table table-sm table-dark table-striped align-middle">
-              <thead><tr><th>Symbol</th><th>Price</th><th>As of</th></tr></thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>
-        </div></div>
-      `;
-    }
-
-    async function loadPrices() {
-      const res = await fetch("/prices.json", { cache: "no-store" });
-      const data = await res.json();
-      currentPrices = {};
-      (data.items || []).forEach(p => { currentPrices[p.symbol] = { price: p.price, ts: p.ts }; });
-      renderPrices(data.items || []);
-      // refresh positions so unrealized PnL uses the latest prices
-      loadPositions();
-    }
-
-    function renderPositions(items) {
-      const rows = items.map(p => {
-        const mark = currentPrices[p.symbol]?.price;
-        let unreal = "-";
-        if (mark != null) {
-          const qty = Number(p.qty);
-          const avg = Number(p.avg_cost);
-          const sideLong = p.side === "LONG";
-          const pnl = sideLong ? (mark - avg) * qty : (avg - mark) * qty;
-          unreal = "$" + pnl.toFixed(2);
-        }
-        return `
-          <tr>
-            <td class="mono">${new Date(p.open_ts*1000).toLocaleString()}</td>
-            <td class="mono">${p.bot}</td>
-            <td class="mono">${p.manager ?? "-"}</td>
-            <td class="mono">${p.symbol}</td>
-            <td class="mono">${p.side}</td>
-            <td class="mono">${Number(p.qty).toFixed(6)}</td>
-            <td class="mono">${Number(p.avg_cost).toFixed(4)}</td>
-            <td class="mono">${unreal}</td>
-          </tr>
-        `;
-      }).join("");
-
-      document.getElementById("positions").innerHTML = `
-        <div class="card"><div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h2 class="h5 mb-0 section-title">Open Positions</h2>
-            <div class="mono small muted">count ${items.length}</div>
-          </div>
-          <div class="table-responsive">
-            <table class="table table-sm table-dark table-striped align-middle">
-              <thead><tr>
-                <th>Opened</th><th>Bot</th><th>Manager</th><th>Symbol</th>
-                <th>Side</th><th>Qty</th><th>Avg Cost</th><th>Unrealized</th>
-              </tr></thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>
-        </div></div>`;
-    }
-
-    async function loadPositions() {
-      const sel = document.getElementById("symFilter");
-      const symbol = sel && sel.value ? `?symbol=${encodeURIComponent(sel.value)}` : "";
-      const res = await fetch(`/positions.json${symbol}`, { cache: "no-store" });
-      const data = await res.json();
-      renderPositions(data.items || []);
-    }
-
-    function renderRoundtrips(items) {
-      const rows = items.map(rt => `
-        <tr>
-          <td class="mono">${new Date(rt.open_ts*1000).toLocaleString()}</td>
-          <td class="mono">${new Date(rt.close_ts*1000).toLocaleString()}</td>
-          <td class="mono">${rt.bot}</td>
-          <td class="mono">${rt.manager ?? "-"}</td>
-          <td class="mono">${rt.symbol}</td>
-          <td class="mono">${rt.side}</td>
-          <td class="mono">${Number(rt.qty).toFixed(6)}</td>
-          <td class="mono">${rt.entry_price.toFixed(4)}</td>
-          <td class="mono">${rt.exit_price.toFixed(4)}</td>
-          <td class="mono">${(rt.pnl).toFixed(2)}</td>
-          <td class="mono">${(rt.pnl_pct*100).toFixed(2)}%</td>
-          <td class="mono">${(rt.duration_s/60).toFixed(1)}m</td>
-        </tr>
-      `).join("");
-      document.getElementById("roundtrips").innerHTML = `
-        <div class="card"><div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h2 class="h5 mb-0 section-title">Closed Trades</h2>
-            <div class="mono small muted">latest ${items.length}</div>
-          </div>
-          <div class="table-responsive">
-            <table class="table table-sm table-dark table-striped align-middle">
-              <thead><tr>
-                <th>Opened</th><th>Closed</th><th>Bot</th><th>Manager</th><th>Symbol</th>
-                <th>Side</th><th>Qty</th><th>Entry</th><th>Exit</th><th>PNL $</th><th>PNL %</th><th>Hold</th>
-              </tr></thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>
-        </div></div>`;
-    }
-
-    async function loadRoundtrips() {
-      const sel = document.getElementById("symFilter");
-      const symbol = sel && sel.value ? `?symbol=${encodeURIComponent(sel.value)}` : "";
-      const res = await fetch(`/roundtrips.json${symbol}`, { cache: "no-store" });
-      const data = await res.json();
-      renderRoundtrips(data.items || []);
-    }
-
-    // hook up the filter
-    document.getElementById("symFilter").addEventListener("change", () => {
-      const sel = document.getElementById("symFilter");
-      document.getElementById("filterNote").textContent = sel.value ? `symbol: ${sel.value}` : "symbol: all";
-      loadPositions();
-      loadRoundtrips();
-    });
-
-    function renderSummary(snap) {
-      const totalEq = snap.strategies.reduce((a, s) =>
-        a + s.bots.reduce((bacc, b) => bacc + Number(b.equity), 0), 0
-      );
-      const totalTrades = snap.strategies.reduce((a, s) =>
-        a + s.bots.reduce((bacc, b) => bacc + Number(b.trades), 0), 0
-      );
-      document.getElementById("summary").innerHTML = `
-        <div class="card">
-          <div class="card-body d-flex justify-content-between align-items-center">
-            <div class="mono">Total equity: <strong>$${fmt2(totalEq)}</strong></div>
-            <div class="mono">Total trades: <strong>${totalTrades}</strong></div>
-            <div class="muted small">Last update: <span id="lastUpdate">${new Date().toLocaleTimeString()}</span></div>
-          </div>
-        </div>
-      `;
-    }
+    let allWorkers = [];    // Flattened list of all workers with their strategy names
+    let openPositions = [];
+    let availableStrategies = [];  // List of all available strategies (saved + evolved + hardcoded)
 
     function badge(val) {
       const c = Number(val);
@@ -223,92 +421,1196 @@
       return `<span class="badge ${cls}">${sign}${pct(c)}</span>`;
     }
 
-    function renderStrategies(snap) {
-      const root = document.getElementById("strategies");
-      root.innerHTML = "";
-      snap.strategies.forEach((s) => {
-        const stratEq = s.bots.reduce((acc, b) => acc + Number(b.equity), 0);
-        const rows = s.bots.map(b => `
-          <tr>
-            <td class="mono">${b.name}</td>
-            <td class="mono">${b.symbol}</td>
-            <td>${b.tf}</td>
-            <td class="mono">$${fmt2(b.equity)}</td>
-            <td>${badge(b.score)}</td>
-            <td class="mono">${b.trades_db ?? b.trades}</td>
-          </tr>
-        `).join("");
+    function updateKPIs(snap) {
+      const metrics = snap.portfolio_metrics || {};
+      const totalTrades = snap.strategies.reduce((a, s) =>
+        a + s.bots.reduce((bacc, b) => bacc + Number(b.trades), 0), 0
+      );
+      const activeWorkers = allWorkers.filter(w =>
+        openPositions.some(p => p.bot === w.name)
+      ).length;
 
-        const html = `
-          <div class="col-12">
-            <div class="card h-100">
-              <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                  <h2 class="h5 mb-0 text-capitalize">${s.name.replaceAll("_"," ")}</h2>
-                  <div class="mono small">Equity: $${fmt2(stratEq)}</div>
-                </div>
-                <div class="table-responsive">
-                  <table class="table table-sm table-dark table-striped align-middle">
-                    <thead>
-                      <tr>
-                        <th>Bot</th>
-                        <th>Symbol</th>
-                        <th>TF</th>
-                        <th>Equity</th>
-                        <th>Score</th>
-                        <th>Trades</th>
-                      </tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                  </table>
+      // Current Value & Starting Capital
+      document.getElementById("kpiCurrentValue").textContent = money(metrics.current_value || 0);
+      document.getElementById("kpiStartingCapital").textContent = money(metrics.starting_capital || 0);
+
+      // Total P&L with color coding
+      const totalPnl = metrics.total_pnl || 0;
+      const totalPnlEl = document.getElementById("kpiTotalPnl");
+      totalPnlEl.textContent = money(totalPnl);
+      totalPnlEl.style.color = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
+
+      // Total Return % with color coding (smaller, in Total P&L card)
+      const returnPct = metrics.total_return_pct || 0;
+      const returnEl = document.getElementById("kpiTotalReturn");
+      returnEl.textContent = (returnPct >= 0 ? '+' : '') + returnPct.toFixed(2) + '%';
+      returnEl.style.color = returnPct >= 0 ? 'var(--green)' : 'var(--red)';
+
+      // Realized P&L (in Total P&L card)
+      const realizedPnl = metrics.realized_pnl || 0;
+      document.getElementById("kpiRealizedPnl").textContent = money(realizedPnl);
+      document.getElementById("kpiRealizedPnl").style.color = realizedPnl >= 0 ? 'var(--green)' : 'var(--red)';
+
+      // Today's P&L with color coding
+      const todaysPnl = metrics.todays_pnl || 0;
+      const todaysPnlEl = document.getElementById("kpiTodaysPnl");
+      todaysPnlEl.textContent = money(todaysPnl);
+      todaysPnlEl.style.color = todaysPnl >= 0 ? 'var(--green)' : 'var(--red)';
+
+      // Positions & Trades
+      document.getElementById("kpiPositions").textContent = openPositions.length;
+      document.getElementById("kpiTrades").textContent = totalTrades;
+
+      // Workers
+      document.getElementById("kpiWorkers").textContent = activeWorkers;
+      document.getElementById("kpiTotalWorkers").textContent = allWorkers.length;
+    }
+
+    function renderStrategyBars(snap) {
+      const strategies = snap.strategies.map(s => {
+        const equity = s.bots.reduce((acc, b) => acc + Number(b.equity), 0);
+        const avgScore = s.bots.reduce((acc, b) => acc + Number(b.score), 0) / s.bots.length;
+        const workers = s.bots.length;
+        const activeWorkers = s.bots.filter(b =>
+          openPositions.some(p => p.bot === b.name)
+        ).length;
+        return { name: s.name, equity, avgScore, workers, activeWorkers };
+      });
+
+      const bars = strategies.map(s => {
+        const scoreClass = s.avgScore >= 0 ? 'badge-up' : 'badge-down';
+        const sign = s.avgScore >= 0 ? '+' : '';
+        return `
+          <div style="display: flex; align-items: center; padding: 0.75rem 1rem; margin-bottom: 0.5rem; background: rgba(255,255,255,0.02); border-radius: 6px; border-left: 3px solid var(--blue);">
+            <div style="flex: 1; font-weight: 500;">${s.name.replaceAll("_", " ")}</div>
+            <div style="display: flex; gap: 1.5rem; align-items: center;">
+              <div style="text-align: right;">
+                <div class="muted" style="font-size: 0.7rem; opacity: 0.7;">Workers</div>
+                <div class="mono" style="font-weight: 600;">${s.activeWorkers}/${s.workers}</div>
+              </div>
+              <div style="text-align: right;">
+                <div class="muted" style="font-size: 0.7rem; opacity: 0.7;">Equity</div>
+                <div class="mono" style="font-weight: 600;">${money(s.equity)}</div>
+              </div>
+              <div style="text-align: right;">
+                <div class="muted" style="font-size: 0.7rem; opacity: 0.7;">Score</div>
+                <div style="font-weight: 600;">
+                  <span class="badge ${scoreClass}">${sign}${pct(s.avgScore)}</span>
                 </div>
               </div>
             </div>
           </div>
         `;
-        root.insertAdjacentHTML("beforeend", html);
+      }).join("");
+
+      document.getElementById("strategyBars").innerHTML = bars;
+    }
+
+    function renderWorkers() {
+      const filterStrategy = document.getElementById("filterStrategy")?.value || "";
+      const filterSymbol = document.getElementById("filterSymbol")?.value || "";
+
+      const filtered = allWorkers.filter(w => {
+        if (filterStrategy && w.strategyType !== filterStrategy) return false;
+        if (filterSymbol && w.symbol !== filterSymbol) return false;
+        return true;
+      });
+
+      const rows = filtered.map(w => {
+        const hasPosition = openPositions.some(p => p.bot === w.name);
+        const statusDot = hasPosition
+          ? '<span style="color: var(--green)">●</span>'
+          : '<span style="color: var(--text-muted)">○</span>';
+        const scoreClass = w.score >= 0 ? 'badge-up' : 'badge-down';
+        const sign = w.score >= 0 ? '+' : '';
+
+        // Build strategy dropdown options
+        const strategyOptions = availableStrategies.map(strat => {
+          const selected = strat.id === w.strategyType || strat.name.includes(w.strategyType) ? 'selected' : '';
+          return `<option value="${strat.id}" ${selected}>${strat.name}</option>`;
+        }).join('');
+
+        return `
+          <tr style="border-bottom: 1px solid var(--panel-border);">
+            <td class="py-2">${statusDot}</td>
+            <td class="py-2 mono small">${w.name}</td>
+            <td class="py-2 mono">${w.symbol}</td>
+            <td class="py-2">${w.strategyType}</td>
+            <td class="py-2 mono">${money(w.equity)}</td>
+            <td class="py-2"><span class="badge ${scoreClass}">${sign}${pct(w.score)}</span></td>
+            <td class="py-2 mono">${w.trades}</td>
+            <td class="py-2">
+              <select class="form-select form-select-sm strategy-change" data-worker="${w.name}" style="width: 250px; font-size: 0.75rem;">
+                ${strategyOptions || '<option>No strategies available</option>'}
+              </select>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      document.getElementById("workersTable").innerHTML = `
+        <div class="table-responsive">
+          <table class="table table-sm mb-0" style="color: var(--text);">
+            <thead style="border-bottom: 2px solid var(--panel-border);">
+              <tr>
+                <th></th>
+                <th class="small">Worker</th>
+                <th class="small">Symbol</th>
+                <th class="small">Strategy</th>
+                <th class="small">Equity</th>
+                <th class="small">Score</th>
+                <th class="small">Trades</th>
+                <th class="small">Change To</th>
+              </tr>
+            </thead>
+            <tbody>${rows || '<tr><td colspan="8" class="text-center py-3 muted">No workers found</td></tr>'}</tbody>
+          </table>
+        </div>
+        <div class="mt-2 muted small">
+          ${filtered.length} of ${allWorkers.length} workers ${filterStrategy || filterSymbol ? '(filtered)' : ''}
+        </div>
+      `;
+
+      // Attach change handlers
+      document.querySelectorAll('.strategy-change').forEach(sel => {
+        sel.addEventListener('change', async (e) => {
+          const workerName = e.target.getAttribute('data-worker');
+          const newStrategy = e.target.value;
+          await changeWorkerStrategy(workerName, newStrategy);
+        });
       });
     }
 
-    async function load() {
-      const res = await fetch("/portfolio.json", { cache: "no-store" });
-      const snap = await res.json();
-      renderSummary(snap);
-      renderStrategies(snap);
+    async function changeWorkerStrategy(workerName, newStrategy) {
+      try {
+        const res = await fetch('/api/worker/strategy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ worker: workerName, strategy: newStrategy })
+        });
+
+        if (res.ok) {
+          await load(); // refresh
+        } else {
+          const error = await res.json();
+          alert(`Failed to change strategy: ${error.error || 'Unknown error'}`);
+        }
+      } catch (err) {
+        console.error('Error changing strategy:', err);
+        alert('Error changing strategy. See console for details.');
+      }
     }
+
+    function renderRecentPositions(items) {
+      document.getElementById("posCount").textContent = `(${items.length})`;
+
+      if (items.length === 0) {
+        document.getElementById("recentPositions").innerHTML = '<div class="muted small">No open positions</div>';
+        return;
+      }
+
+      const list = items.slice(0, 5).map(p => {
+        const mark = currentPrices[p.symbol]?.price;
+        let pnl = 0;
+        if (mark != null) {
+          const qty = Number(p.qty);
+          const avg = Number(p.avg_cost);
+          const sideLong = p.side === "LONG";
+          pnl = sideLong ? (mark - avg) * qty : (avg - mark) * qty;
+        }
+        const pnlClass = pnl >= 0 ? 'badge-up' : 'badge-down';
+
+        return `
+          <div style="display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid var(--panel-border);">
+            <div>
+              <div class="mono small">${p.symbol} ${p.side}</div>
+              <div class="muted small">${p.bot}</div>
+            </div>
+            <div class="text-end">
+              <div class="mono small">${Number(p.qty).toFixed(4)}</div>
+              <div><span class="badge ${pnlClass}">${money(pnl)}</span></div>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      document.getElementById("recentPositions").innerHTML = list;
+    }
+
+    async function loadPositions() {
+      const res = await fetch('/positions.json', { cache: "no-store" });
+      const data = await res.json();
+      openPositions = data.items || [];
+      renderRecentPositions(openPositions);
+    }
+
+    function renderRecentTrades(items) {
+      document.getElementById("tradesCount").textContent = `(${items.length})`;
+
+      if (items.length === 0) {
+        document.getElementById("recentTrades").innerHTML = '<div class="muted small">No recent trades</div>';
+        return;
+      }
+
+      const list = items.slice(0, 5).map(rt => {
+        const pnlClass = rt.pnl >= 0 ? 'badge-up' : 'badge-down';
+        const sign = rt.pnl >= 0 ? '+' : '';
+        return `
+          <div style="display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid var(--panel-border);">
+            <div>
+              <div class="mono small">${rt.symbol} ${rt.side}</div>
+              <div class="muted small">${new Date(rt.close_ts*1000).toLocaleTimeString()}</div>
+            </div>
+            <div class="text-end">
+              <div class="mono small">${rt.bot}</div>
+              <div><span class="badge ${pnlClass}">${sign}${money(rt.pnl)}</span></div>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      document.getElementById("recentTrades").innerHTML = list;
+    }
+
+    async function loadRoundtrips() {
+      const res = await fetch('/roundtrips.json?limit=20', { cache: "no-store" });
+      const data = await res.json();
+      renderRecentTrades(data.items || []);
+    }
+
+    async function loadPrices() {
+      const res = await fetch('/prices.json', { cache: "no-store" });
+      const data = await res.json();
+      currentPrices = {};
+      (data.items || []).forEach(p => { currentPrices[p.symbol] = { price: p.price, ts: p.ts }; });
+    }
+
+    async function loadAvailableStrategies() {
+      try {
+        const res = await fetch('/api/available-strategies', { cache: "no-store" });
+        const data = await res.json();
+        availableStrategies = data.strategies || [];
+      } catch (err) {
+        console.error('Error loading available strategies:', err);
+        availableStrategies = [];
+      }
+    }
+
+    async function load() {
+      const res = await fetch('/portfolio.json', { cache: "no-store" });
+      const snap = await res.json();
+
+      // Flatten workers with strategy info
+      allWorkers = [];
+      snap.strategies.forEach(s => {
+        s.bots.forEach(b => {
+          // Infer strategy type from bot name (legacy logic, will be replaced by DB field)
+          let strategyType = 'GenomeStrategy';  // Default for evolved strategies
+          if (b.name.startsWith('mr_')) strategyType = 'MeanReversion';
+          else if (b.name.startsWith('bo_')) strategyType = 'Breakout';
+          else if (b.name.startsWith('tf_')) strategyType = 'TrendFollow';
+          else if (b.name.startsWith('evolved_')) strategyType = 'EvolvedStrategy';
+
+          allWorkers.push({
+            name: b.name,
+            symbol: b.symbol,
+            tf: b.tf,
+            equity: b.equity,
+            score: b.score,
+            trades: b.trades_db ?? b.trades,
+            allocation: 0,
+            strategyName: s.name,
+            strategyType: strategyType
+          });
+        });
+      });
+
+      updateKPIs(snap);
+      renderStrategyBars(snap);
+    }
+
+    // Auto-assign controls
+    async function loadAutoRebalanceStatus() {
+      try {
+        const res = await fetch('/api/auto-rebalance');
+        const data = await res.json();
+        document.getElementById('autoRebalanceToggle').checked = data.enabled;
+      } catch (err) {
+        console.error('Error loading auto-rebalance status:', err);
+      }
+    }
+
+    document.getElementById('autoRebalanceToggle')?.addEventListener('change', async (e) => {
+      try {
+        const enabled = e.target.checked;
+        const res = await fetch('/api/auto-rebalance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled })
+        });
+        const data = await res.json();
+        document.getElementById('rebalanceStatus').textContent = data.message;
+        setTimeout(() => { document.getElementById('rebalanceStatus').textContent = ''; }, 3000);
+      } catch (err) {
+        console.error('Error toggling auto-rebalance:', err);
+        alert('Error toggling auto-rebalance. See console for details.');
+      }
+    });
+
+    document.getElementById('manualRebalanceBtn')?.addEventListener('click', async () => {
+      const btn = document.getElementById('manualRebalanceBtn');
+      btn.disabled = true;
+      btn.textContent = 'Processing...';
+      try {
+        const res = await fetch('/api/auto-assign-strategies', { method: 'POST', headers: { 'Content-Type': 'application/json' }});
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById('rebalanceStatus').textContent =
+            `Reassigned ${data.count} workers to ${data.best_strategy}`;
+          setTimeout(() => { document.getElementById('rebalanceStatus').textContent = ''; }, 5000);
+          await load();
+        } else {
+          alert('Auto-assignment failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error triggering auto-rebalance:', err);
+        alert('Error triggering auto-rebalance. See console for details.');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Trigger Now';
+      }
+    });
+
+    // Workers modal event
+    document.getElementById('workersModal')?.addEventListener('show.bs.modal', () => {
+      renderWorkers();
+    });
+
+    // Filter handlers (in modal)
+    document.getElementById("filterStrategy")?.addEventListener("change", renderWorkers);
+    document.getElementById("filterSymbol")?.addEventListener("change", renderWorkers);
 
     // Refresh controls
     let timer = null;
     const intervalSel = document.getElementById("interval");
     const autoChk = document.getElementById("autoRefresh");
     const refreshBtn = document.getElementById("refreshBtn");
-    tfTag.textContent = "TF: 5m"
+    const tfTag = document.getElementById("tfTag");
+    // Timeframe will be loaded from API in loadTradingStatus()
+
+    async function loadFees() {
+      try {
+        const res = await fetch('/fees.json', { cache: "no-store" });
+        const data = await res.json();
+
+        document.getElementById("feesTotal").textContent = money(data.total_fees);
+        document.getElementById("feesMakerRatio").textContent = pct(data.maker_ratio);
+        document.getElementById("feesRate").textContent = data.fee_percentage.toFixed(3) + '%';
+        document.getElementById("feesVolume").textContent = money(data.total_volume);
+      } catch (err) {
+        console.error('Error loading fees:', err);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Trading Controls
+    // ─────────────────────────────────────────────────────────────────────────
+
+    async function loadTradingStatus() {
+      try {
+        const res = await fetch('/api/trading-status', { cache: "no-store" });
+        const data = await res.json();
+
+        const badge = document.getElementById('tradingStatusBadge');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const resumeBtn = document.getElementById('resumeBtn');
+
+        if (data.trading_paused) {
+          badge.textContent = 'PAUSED';
+          badge.className = 'badge badge-down';
+          pauseBtn.style.display = 'none';
+          resumeBtn.style.display = 'inline-block';
+        } else {
+          badge.textContent = 'ACTIVE';
+          badge.className = 'badge badge-up';
+          pauseBtn.style.display = 'inline-block';
+          resumeBtn.style.display = 'none';
+        }
+
+        // Update capital limit status
+        const capitalLimitStatus = document.getElementById('capitalLimitStatus');
+        const capitalLimitInput = document.getElementById('capitalLimitInput');
+
+        if (data.capital_limit_usdt && data.capital_limit_usdt > 0) {
+          capitalLimitStatus.textContent = `Set to $${data.capital_limit_usdt.toLocaleString()}`;
+          capitalLimitStatus.className = 'text-success fw-bold';
+          capitalLimitInput.value = data.capital_limit_usdt;
+        } else {
+          capitalLimitStatus.textContent = 'Not set (using 90% of balance)';
+          capitalLimitStatus.className = 'text-muted';
+          capitalLimitInput.value = '';
+        }
+
+        // Update timeframe status and dropdown
+        const timeframe = data.trading_timeframe || '1d';
+        const timeframeStatus = document.getElementById('timeframeStatus');
+        const timeframeSelect = document.getElementById('timeframeSelect');
+        const tfTag = document.getElementById('tfTag');
+
+        const timeframeLabels = {
+          '1m': '1m (1 minute)',
+          '5m': '5m (5 minutes)',
+          '15m': '15m (15 minutes)',
+          '30m': '30m (30 minutes)',
+          '1h': '1h (1 hour)',
+          '4h': '4h (4 hours)',
+          '1d': '1d (Daily)',
+          '1w': '1w (Weekly)'
+        };
+
+        timeframeStatus.textContent = timeframeLabels[timeframe] || timeframe;
+        timeframeSelect.value = timeframe;
+        tfTag.textContent = `TF: ${timeframe}`;
+
+        // Update number of active strategies status
+        const numStrategies = data.num_active_strategies || 5;
+        const numStrategiesStatus = document.getElementById('numStrategiesStatus');
+        const numStrategiesInput = document.getElementById('numStrategiesInput');
+
+        numStrategiesStatus.textContent = `${numStrategies} strateg${numStrategies === 1 ? 'y' : 'ies'}`;
+        numStrategiesInput.value = numStrategies;
+
+        // Update execution mode status and dropdown
+        const executionMode = data.execution_mode || 'binance_testnet';
+        const executionModeStatus = document.getElementById('executionModeStatus');
+        const executionModeSelect = document.getElementById('executionModeSelect');
+
+        const executionModeLabels = {
+          'paper': 'Paper Trading',
+          'binance_testnet': 'Binance Testnet'
+        };
+
+        executionModeStatus.textContent = executionModeLabels[executionMode] || executionMode;
+        executionModeSelect.value = executionMode;
+      } catch (err) {
+        console.error('Error loading trading status:', err);
+      }
+    }
+
+    async function setCapitalLimit() {
+      const input = document.getElementById('capitalLimitInput');
+      const limit = parseFloat(input.value);
+
+      if (!limit || limit <= 0) {
+        alert('Please enter a valid capital limit (positive number)');
+        return;
+      }
+
+      if (!confirm(`Set capital limit to $${limit.toLocaleString()} USDT?\n\n⚠️ You MUST restart the app for this to take effect.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/set-capital-limit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ capital_limit_usdt: limit })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert(`✅ ${data.message}`);
+          loadTradingStatus();
+        } else {
+          alert('Failed to set capital limit: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error setting capital limit:', err);
+        alert('Error setting capital limit. See console for details.');
+      }
+    }
+
+    async function clearCapitalLimit() {
+      if (!confirm('Remove capital limit and use 90% of available balance?\n\n⚠️ You MUST restart the app for this to take effect.')) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/set-capital-limit', {
+          method: 'DELETE'
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert(`✅ ${data.message}`);
+          loadTradingStatus();
+        } else {
+          alert('Failed to clear capital limit: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error clearing capital limit:', err);
+        alert('Error clearing capital limit. See console for details.');
+      }
+    }
+
+    async function setTimeframe() {
+      const select = document.getElementById('timeframeSelect');
+      const timeframe = select.value;
+
+      const timeframeNames = {
+        '1m': '1 minute',
+        '5m': '5 minutes',
+        '15m': '15 minutes',
+        '30m': '30 minutes',
+        '1h': '1 hour',
+        '4h': '4 hours',
+        '1d': 'Daily',
+        '1w': 'Weekly'
+      };
+
+      const confirmMsg = `🚨 CRITICAL WARNING 🚨\n\nSet trading timeframe to ${timeframe} (${timeframeNames[timeframe]})?\n\n` +
+        `⚠️ You MUST restart the app for this to take effect.\n\n` +
+        `🔴 IMPORTANT: Your strategies were optimized on a specific timeframe!\n` +
+        `Using a different timeframe than what they were tested on will result in POOR PERFORMANCE.\n\n` +
+        `Only change this if you have re-optimized your strategies on ${timeframe}.`;
+
+      if (!confirm(confirmMsg)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/set-timeframe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ timeframe: timeframe })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert(`✅ ${data.message}\n\n${data.warning}`);
+          loadTradingStatus();
+        } else {
+          alert('Failed to set timeframe: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error setting timeframe:', err);
+        alert('Error setting timeframe. See console for details.');
+      }
+    }
+
+    async function setNumStrategies() {
+      const input = document.getElementById('numStrategiesInput');
+      const numStrategies = parseInt(input.value);
+
+      if (!numStrategies || numStrategies < 1 || numStrategies > 20) {
+        alert('Please enter a valid number of strategies (1-20)');
+        return;
+      }
+
+      if (!confirm(`Set portfolio to run top ${numStrategies} evolved strateg${numStrategies === 1 ? 'y' : 'ies'}?\n\n⚠️ You MUST restart the app for this to take effect.\n\nPortfolio will select the ${numStrategies} best performing evolved strategies from the genetic algorithm (only profitable strategies with score > 0).`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/set-num-strategies', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ num_strategies: numStrategies })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert(`✅ ${data.message}`);
+          loadTradingStatus();
+        } else {
+          alert('Failed to set number of strategies: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error setting number of strategies:', err);
+        alert('Error setting number of strategies. See console for details.');
+      }
+    }
+
+    async function setExecutionMode() {
+      const select = document.getElementById('executionModeSelect');
+      const mode = select.value;
+
+      const modeNames = {
+        'paper': '📝 Paper Trading (simulated)',
+        'binance_testnet': '🧪 Binance Testnet (fake money)'
+      };
+
+      if (!confirm(`Set execution mode to ${modeNames[mode]}?\n\n⚠️ You MUST restart the app for this to take effect.\n\nPaper mode simulates trades without any exchange connection.\nTestnet uses Binance testnet with fake money.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/set-execution-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ execution_mode: mode })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert(`✅ ${data.message}`);
+          loadTradingStatus();
+          loadExchangeBalance();  // Update the badge
+        } else {
+          alert('Failed to set execution mode: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error setting execution mode:', err);
+        alert('Error setting execution mode. See console for details.');
+      }
+    }
+
+    async function pauseTrading() {
+      if (!confirm('Pause all trading?\n\nBots will stop executing new trades but keep current positions.')) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/pause-trading', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert('✅ Trading paused\n\nNo new trades will be executed.');
+          loadTradingStatus();
+        } else {
+          alert('Failed to pause trading: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error pausing trading:', err);
+        alert('Error pausing trading. See console for details.');
+      }
+    }
+
+    async function resumeTrading() {
+      if (!confirm('Resume trading?\n\nBots will start executing trades again.')) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/resume-trading', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert('✅ Trading resumed\n\nBots will execute trades normally.');
+          loadTradingStatus();
+        } else {
+          alert('Failed to resume trading: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error resuming trading:', err);
+        alert('Error resuming trading. See console for details.');
+      }
+    }
+
+    async function liquidateAll() {
+      if (!confirm('🚨 EMERGENCY LIQUIDATION 🚨\n\nThis will:\n• Close ALL open positions immediately\n• Pause all trading\n• Convert all holdings to USDT\n\nOnly use in emergency situations!\n\nAre you sure?')) {
+        return;
+      }
+
+      if (!confirm('This action will close ALL positions at market prices.\n\nAre you ABSOLUTELY sure?')) {
+        return;
+      }
+
+      try {
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = 'Liquidating...';
+
+        const res = await fetch('/api/liquidate-all', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          const msg = `✅ Emergency liquidation complete!\n\nPositions closed: ${data.positions_closed}\nTotal value: $${data.total_value.toFixed(2)}\n\nTrading is now PAUSED.\n\nRefreshing page...`;
+          alert(msg);
+          location.reload();
+        } else {
+          alert('Liquidation failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error liquidating:', err);
+        alert('Error during liquidation. See console for details.');
+      } finally {
+        const btn = event.target;
+        btn.disabled = false;
+        btn.textContent = '🚨 Emergency Liquidate';
+      }
+    }
+
+    async function resetForTesting() {
+      if (!confirm('⚠️ WARNING: This will DELETE ALL trades, positions, and reset all bots!\n\nThis action cannot be undone.\n\nOnly use this for testing. Are you sure?')) {
+        return;
+      }
+
+      if (!confirm('Are you REALLY sure? All trading history will be permanently deleted!')) {
+        return;
+      }
+
+      try {
+        const btn = document.getElementById('resetBtn');
+        btn.disabled = true;
+        btn.textContent = 'Resetting...';
+
+        const res = await fetch('/api/reset-for-testing', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          const capitalPerBot = data.capital_per_bot ? `$${data.capital_per_bot.toFixed(2)}` : 'N/A';
+          const totalEquity = data.total_equity ? `$${data.total_equity.toFixed(2)}` : 'N/A';
+          alert(`✅ Reset complete!\n\nReset ${data.bots_reset} bots\nCapital per bot: ${capitalPerBot}\nTotal equity: ${totalEquity}\n\nRefreshing page...`);
+          location.reload();
+        } else if (data.action_required === 'pause_or_liquidate') {
+          alert(`⚠️ Reset blocked for safety\n\n${data.message}\n\nPlease pause trading or liquidate all positions first.`);
+        } else {
+          alert('Reset failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error resetting:', err);
+        alert('Error resetting. See console for details.');
+      } finally {
+        const btn = document.getElementById('resetBtn');
+        btn.disabled = false;
+        btn.textContent = '⚠ Reset All Data';
+      }
+    }
+
+    async function loadExchangeBalance() {
+      try {
+        const res = await fetch('/exchange-balance.json', { cache: "no-store" });
+        const data = await res.json();
+
+        // Update execution mode badge (in Exchange Balance section)
+        const modeElement = document.getElementById("executionMode");
+        modeElement.textContent = data.mode.toUpperCase();
+
+        // Update exchange mode badge (in Trading Controls header)
+        const exchangeBadge = document.getElementById("exchangeModeBadge");
+        if (data.mode === "paper") {
+          modeElement.className = "badge badge-down";
+          exchangeBadge.textContent = "📝 Paper Trading";
+          exchangeBadge.style.background = "#6b7280";
+          exchangeBadge.style.color = "#e2e8f0";
+          document.getElementById("exchangeBalanceCard").style.display = "none";
+          return;
+        } else if (data.mode === "binance_testnet") {
+          modeElement.className = "badge badge-up";
+          exchangeBadge.textContent = "🧪 Binance Testnet";
+          exchangeBadge.style.background = "#f59e0b";
+          exchangeBadge.style.color = "#1f2937";
+          document.getElementById("exchangeBalanceCard").style.display = "block";
+        } else {
+          // Live mode (future)
+          modeElement.className = "badge badge-up";
+          exchangeBadge.textContent = "🔴 Binance LIVE";
+          exchangeBadge.style.background = "#ef4444";
+          exchangeBadge.style.color = "#ffffff";
+          document.getElementById("exchangeBalanceCard").style.display = "block";
+        }
+
+        // Render balances
+        const content = document.getElementById("exchangeBalanceContent");
+
+        if (data.error) {
+          content.innerHTML = `<div class="text-danger small">Error: ${data.error}</div>`;
+          return;
+        }
+
+        if (data.balances.length === 0) {
+          content.innerHTML = '<div class="muted small">No funds in account</div>';
+          return;
+        }
+
+        // Fetch current prices to calculate USD value
+        const pricesRes = await fetch('/prices.json', { cache: "no-store" });
+        const pricesData = await pricesRes.json();
+
+        // Build price map (symbol -> price)
+        const priceMap = {};
+        (pricesData.items || []).forEach(p => {
+          // Extract base currency from symbol (e.g., "BTC" from "BTC_USDT")
+          const base = p.symbol.split('_')[0];
+          priceMap[base] = p.price;
+        });
+
+        // Prioritize coins we're trading and stablecoins
+        const priorityCoins = ['BTC', 'ETH', 'SOL', 'USDT', 'BUSD', 'BNB', 'USDC'];
+        const priority = [];
+        const others = [];
+        let totalUsdValue = 0;
+
+        data.balances.forEach(bal => {
+          // Calculate USD value
+          let usdValue = 0;
+          if (bal.asset === 'USDT' || bal.asset === 'BUSD' || bal.asset === 'USDC') {
+            // Stablecoins are 1:1 with USD
+            usdValue = bal.total;
+          } else if (priceMap[bal.asset]) {
+            usdValue = bal.total * priceMap[bal.asset];
+          }
+
+          bal.usdValue = usdValue;
+          totalUsdValue += usdValue;
+
+          if (priorityCoins.includes(bal.asset)) {
+            priority.push(bal);
+          } else {
+            others.push(bal);
+          }
+        });
+
+        // Sort priority by our list order
+        priority.sort((a, b) => priorityCoins.indexOf(a.asset) - priorityCoins.indexOf(b.asset));
+
+        // Show total USD value at the top
+        let balanceHtml = `
+          <div class="mb-3 p-3" style="background: var(--page-bg); border-radius: 6px; text-align: center;">
+            <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px;">Total Exchange Value</div>
+            <div class="mono" style="font-size: 2rem; font-weight: 600; color: var(--green);">${money(totalUsdValue)}</div>
+          </div>
+        `;
+
+        balanceHtml += `<div class="row g-2">`;
+
+        priority.forEach(bal => {
+          balanceHtml += `
+            <div class="col-6 col-md-3">
+              <div style="background: var(--page-bg); border-radius: 6px; padding: 0.75rem;">
+                <div class="muted small">${bal.asset}</div>
+                <div class="mono" style="font-size: 1.25rem; font-weight: 600;">${bal.total.toFixed(8)}</div>
+                <div class="muted" style="font-size: 0.7rem;">
+                  ${bal.usdValue > 0 ? `≈ ${money(bal.usdValue)}<br>` : ''}
+                  Free: ${bal.free.toFixed(8)}
+                  ${bal.locked > 0 ? `<br>Locked: ${bal.locked.toFixed(8)}` : ''}
+                </div>
+              </div>
+            </div>
+          `;
+        });
+
+        balanceHtml += `</div>`;
+
+        // Add collapsible "show more" for other coins
+        if (others.length > 0) {
+          balanceHtml += `
+            <div class="mt-3">
+              <button class="btn btn-sm btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#otherBalances" style="padding: 0;">
+                + ${others.length} other coin${others.length > 1 ? 's' : ''} (click to show)
+              </button>
+              <div class="collapse mt-2" id="otherBalances">
+                <div class="row g-2">
+                  ${others.map(bal => `
+                    <div class="col-6 col-md-3">
+                      <div style="background: var(--page-bg); border-radius: 6px; padding: 0.5rem;">
+                        <div class="muted small">${bal.asset}</div>
+                        <div class="mono small">${bal.total.toFixed(8)}</div>
+                        ${bal.usdValue > 0 ? `<div class="muted" style="font-size: 0.65rem;">≈ ${money(bal.usdValue)}</div>` : ''}
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        content.innerHTML = balanceHtml;
+
+      } catch (err) {
+        console.error('Error loading exchange balance:', err);
+      }
+    }
+
+    async function loadDecisions() {
+      try {
+        // Fetch from database instead of in-memory log (persists across restarts)
+        const res = await fetch('/api/recent-trades', { cache: "no-store" });
+        const data = await res.json();
+        const trades = data.items || [];
+
+        document.getElementById("decisionsCount").textContent = trades.length;
+
+        if (trades.length === 0) {
+          document.getElementById("decisionsContent").innerHTML = '<div class="muted small">No trades executed yet</div>';
+          return;
+        }
+
+        // Show last 10 executed trades
+        const recent = trades.slice(0, 10);
+
+        let html = '<div class="table-responsive"><table class="table table-sm table-dark mb-0" style="font-size: 0.85rem;"><thead><tr>';
+        html += '<th style="width: 90px;">Time</th>';
+        html += '<th style="width: 100px;">Pair</th>';
+        html += '<th style="width: 60px;">Side</th>';
+        html += '<th>Quantity</th>';
+        html += '<th>Price</th>';
+        html += '<th>Fee</th>';
+        html += '<th>Type</th>';
+        html += '</tr></thead><tbody>';
+
+        recent.forEach(d => {
+          const timeAgo = Math.floor((Date.now() / 1000) - d.timestamp);
+          const timeStr = timeAgo < 60 ? `${timeAgo}s ago` :
+                         timeAgo < 3600 ? `${Math.floor(timeAgo / 60)}m ago` :
+                         `${Math.floor(timeAgo / 3600)}h ago`;
+
+          // Format symbol nicely (BTC_USDT -> BTC/USDT)
+          const symbol = (d.symbol || '').replace('_', '/');
+
+          // Side badge
+          const sideClass = d.side.toLowerCase() === 'buy' ? 'badge-up' : 'badge-down';
+          const sideLabel = (d.side || '').toUpperCase();
+
+          // Quantity
+          const qty = (d.qty || 0).toFixed(4);
+
+          // Price
+          const price = '$' + (d.price || 0).toFixed(2);
+
+          // Fee
+          const fee = '$' + (d.fee || 0).toFixed(2);
+
+          // Maker/Taker
+          const feeType = d.is_maker ? 'Maker (0%)' : 'Taker (0.1%)';
+
+          html += `<tr>
+            <td class="muted small">${timeStr}</td>
+            <td class="mono" style="font-weight: 600;">${symbol}</td>
+            <td><span class="badge ${sideClass}" style="font-size: 0.7rem;">${sideLabel}</span></td>
+            <td class="mono small">${qty}</td>
+            <td class="mono small">${price}</td>
+            <td class="mono small">${fee}</td>
+            <td class="muted small">${feeType}</td>
+          </tr>`;
+        });
+
+        html += '</tbody></table></div>';
+
+        if (trades.length > 10) {
+          html += `<div class="muted small mt-2 text-center">Showing 10 of ${trades.length} executed trades</div>`;
+        }
+
+        document.getElementById("decisionsContent").innerHTML = html;
+
+      } catch (err) {
+        console.error('Error loading trades:', err);
+        document.getElementById("decisionsContent").innerHTML = '<div class="text-danger small">Error loading trades</div>';
+      }
+    }
+
+    function refreshAll() {
+      load();
+      loadPrices();
+      loadPositions();
+      loadRoundtrips();
+      loadFees();
+      loadExchangeBalance();
+      loadDecisions();
+    }
 
     function startLoop() {
       stopLoop();
       const ms = Number(intervalSel.value) * 1000;
-      timer = setInterval(() => {
-        load();
-        loadPrices();
-        loadPositions();
-        loadRoundtrips();
-      }, ms);
+      timer = setInterval(refreshAll, ms);
     }
 
     function stopLoop() {
       if (timer) { clearInterval(timer); timer = null; }
     }
 
-    autoChk.addEventListener("change", () => {
-      autoChk.checked ? startLoop() : stopLoop();
-    });
-    intervalSel.addEventListener("change", () => {
-      if (autoChk.checked) startLoop();
-    });
-    refreshBtn.addEventListener("click", load);
+    autoChk.addEventListener("change", () => { autoChk.checked ? startLoop() : stopLoop(); });
+    intervalSel.addEventListener("change", () => { if (autoChk.checked) startLoop(); });
+    refreshBtn.addEventListener("click", refreshAll);
 
-    // initial
-    Promise.all([load(), loadPrices(), loadPositions(), loadRoundtrips()]).then(() => {
+    // Initial load
+    // ─────────────────────────────────────────────────────────────────────────
+    // Manual Trading Functions
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Update UI when symbol, side, or order type changes
+    document.getElementById('manualSymbol').addEventListener('change', updateManualTradingInfo);
+    document.getElementById('manualSide').addEventListener('change', updateManualTradingInfo);
+    document.getElementById('manualOrderType').addEventListener('change', function() {
+      const orderType = this.value;
+      const limitPriceGroup = document.getElementById('limitPriceGroup');
+      limitPriceGroup.style.display = orderType === 'limit' ? 'block' : 'none';
+    });
+
+    // Update quantity hint when quantity changes
+    document.getElementById('manualQuantity').addEventListener('input', updateQuantityHint);
+
+    async function updateManualTradingInfo() {
+      const symbol = document.getElementById('manualSymbol').value;
+
+      try {
+        // Handle USDC_USDT specially (price is always ~1.0)
+        if (symbol === 'USDC_USDT') {
+          document.getElementById('manualCurrentPrice').textContent = '$1.0000';
+        } else {
+          // Fetch current price for crypto pairs
+          const pricesRes = await fetch('/prices.json', { cache: "no-store" });
+          const pricesData = await pricesRes.json();
+
+          const item = pricesData.items.find(p => p.symbol === symbol);
+          if (item) {
+            document.getElementById('manualCurrentPrice').textContent = `$${item.price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+          }
+        }
+
+        // Determine which balance to show based on side
+        const side = document.getElementById('manualSide').value;
+        const [baseCurrency, quoteCurrency] = symbol.split('_'); // e.g., "BTC", "USDT"
+
+        // BUY: spending quote currency (USDT), SELL: spending base currency (BTC/ETH/SOL/USDC)
+        const relevantCurrency = side === 'buy' ? quoteCurrency : baseCurrency;
+
+        // Update label
+        document.getElementById('manualBalanceLabel').textContent = `Available ${relevantCurrency}`;
+
+        // Fetch and display balance
+        const balanceRes = await fetch('/exchange-balance.json', { cache: "no-store" });
+        const balanceData = await balanceRes.json();
+
+        const balance = balanceData.balances.find(b => b.asset === relevantCurrency);
+        if (balance) {
+          const displayValue = relevantCurrency === 'USDT' || relevantCurrency === 'USDC'
+            ? `$${balance.total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
+            : balance.total.toLocaleString('en-US', {minimumFractionDigits: 8, maximumFractionDigits: 8});
+          document.getElementById('manualAvailableBalance').textContent = displayValue;
+        } else {
+          document.getElementById('manualAvailableBalance').textContent = '0.00';
+        }
+
+        // Update quantity hint
+        updateQuantityHint();
+
+      } catch (e) {
+        console.error('Failed to update manual trading info:', e);
+      }
+    }
+
+    function updateQuantityHint() {
+      const quantity = parseFloat(document.getElementById('manualQuantity').value) || 0;
+      const priceText = document.getElementById('manualCurrentPrice').textContent.replace(/[$,]/g, '');
+      const price = parseFloat(priceText) || 0;
+
+      const usdValue = quantity * price;
+      document.getElementById('quantityHint').textContent = `≈ $${usdValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    }
+
+    async function executeManualTrade() {
+      const symbol = document.getElementById('manualSymbol').value;
+      const side = document.getElementById('manualSide').value;
+      const quantity = parseFloat(document.getElementById('manualQuantity').value);
+      const orderType = document.getElementById('manualOrderType').value;
+      const limitPrice = parseFloat(document.getElementById('manualLimitPrice').value);
+
+      const statusDiv = document.getElementById('manualTradeStatus');
+      const btn = document.getElementById('executeTradeBtn');
+
+      // Validate
+      if (!quantity || quantity <= 0) {
+        statusDiv.innerHTML = '<div class="alert alert-danger small mb-0">Please enter a valid quantity</div>';
+        return;
+      }
+
+      if (orderType === 'limit' && (!limitPrice || limitPrice <= 0)) {
+        statusDiv.innerHTML = '<div class="alert alert-danger small mb-0">Please enter a valid limit price</div>';
+        return;
+      }
+
+      // Disable button during execution
+      btn.disabled = true;
+      btn.textContent = 'Executing...';
+      statusDiv.innerHTML = '<div class="alert alert-info small mb-0">Submitting trade...</div>';
+
+      try {
+        const payload = {
+          symbol,
+          side,
+          quantity,
+          order_type: orderType
+        };
+
+        if (orderType === 'limit') {
+          payload.limit_price = limitPrice;
+        }
+
+        const res = await fetch('/api/manual-trade', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          statusDiv.innerHTML = `<div class="alert alert-success small mb-0">${data.message}</div>`;
+
+          // Clear form
+          document.getElementById('manualQuantity').value = '';
+          document.getElementById('manualLimitPrice').value = '';
+
+          // Refresh balances and info
+          setTimeout(() => {
+            loadExchangeBalance();
+            updateManualTradingInfo();
+          }, 1000);
+
+        } else {
+          statusDiv.innerHTML = `<div class="alert alert-danger small mb-0">Error: ${data.error || 'Unknown error'}</div>`;
+        }
+
+      } catch (e) {
+        statusDiv.innerHTML = `<div class="alert alert-danger small mb-0">Failed to execute trade: ${e.message}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Execute Trade';
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Load strategies first (needed by renderWorkers)
+    loadAvailableStrategies().then(() => {
+      // Then load everything else
+      return Promise.all([
+        load(),
+        loadPrices(),
+        loadPositions(),
+        loadRoundtrips(),
+        loadAutoRebalanceStatus(),
+        loadFees(),
+        loadExchangeBalance(),
+        loadDecisions(),
+        updateManualTradingInfo(),  // Initialize manual trading info
+        loadTradingStatus()  // Initialize trading controls
+      ]);
+    }).then(() => {
       if (autoChk.checked) startLoop();
     });
   </script>

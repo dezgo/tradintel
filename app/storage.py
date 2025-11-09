@@ -200,15 +200,52 @@ class Storage:
             )
             self._conn.commit()
 
+        # Migrate to version 7: add fee tracking to trades table
+        if ver < 7:
+            cur.executescript(
+                """
+                BEGIN;
+                ALTER TABLE trades ADD COLUMN fee REAL DEFAULT 0.0;
+                ALTER TABLE trades ADD COLUMN is_maker INTEGER DEFAULT 0;
+                CREATE INDEX IF NOT EXISTS idx_trades_bot ON trades(bot_name, ts DESC);
+                PRAGMA user_version = 7;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
+        # Migrate to version 8: add starting_allocation to track fixed P&L baseline
+        if ver < 8:
+            cur.executescript(
+                """
+                BEGIN;
+                -- Add starting_allocation column, defaulting to current allocation
+                ALTER TABLE bots ADD COLUMN starting_allocation REAL;
+                -- Initialize starting_allocation to current allocation for existing bots
+                UPDATE bots SET starting_allocation = allocation WHERE starting_allocation IS NULL;
+                PRAGMA user_version = 8;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
     # ── Trades ────────────────────────────────────────────────────────────────
     def record_trade(
-        self, bot_name: str, symbol: str, side: str, qty: float, price: float, ts: Optional[int] = None
+        self,
+        bot_name: str,
+        symbol: str,
+        side: str,
+        qty: float,
+        price: float,
+        ts: Optional[int] = None,
+        fee: float = 0.0,
+        is_maker: bool = False
     ) -> None:
         ts = int(ts or time.time())
         with self._lock:
             self._conn.execute(
-                "INSERT INTO trades(ts, bot_name, symbol, side, qty, price) VALUES(?,?,?,?,?,?)",
-                (ts, bot_name, symbol, side, float(qty), float(price)),
+                "INSERT INTO trades(ts, bot_name, symbol, side, qty, price, fee, is_maker) VALUES(?,?,?,?,?,?,?,?)",
+                (ts, bot_name, symbol, side, float(qty), float(price), float(fee), int(is_maker)),
             )
             self._conn.commit()
 
@@ -223,6 +260,7 @@ class Storage:
         strategy: str,
         params: Dict[str, Any],
         allocation: float,
+        starting_allocation: Optional[float] = None,
         cash: float,
         pos_qty: float,
         avg_price: float,
@@ -232,11 +270,13 @@ class Storage:
     ) -> None:
         now = int(time.time())
         pjson = json.dumps(params, separators=(",", ":"))
+        # If starting_allocation not provided, use current allocation (for new bots)
+        start_alloc = starting_allocation if starting_allocation is not None else allocation
         with self._lock:
             self._conn.execute(
                 """
-                INSERT INTO bots(name, manager, symbol, tf, strategy, params_json, allocation, cash, pos_qty, avg_price, equity, score, trades, updated_ts)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO bots(name, manager, symbol, tf, strategy, params_json, allocation, starting_allocation, cash, pos_qty, avg_price, equity, score, trades, updated_ts)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(name) DO UPDATE SET
                     manager=excluded.manager,
                     symbol=excluded.symbol,
@@ -244,6 +284,7 @@ class Storage:
                     strategy=excluded.strategy,
                     params_json=excluded.params_json,
                     allocation=excluded.allocation,
+                    starting_allocation=COALESCE(excluded.starting_allocation, bots.starting_allocation, excluded.allocation),
                     cash=excluded.cash,
                     pos_qty=excluded.pos_qty,
                     avg_price=excluded.avg_price,
@@ -252,19 +293,19 @@ class Storage:
                     trades=excluded.trades,
                     updated_ts=excluded.updated_ts
                 """,
-                (name, manager, symbol, tf, strategy, pjson, allocation, cash, pos_qty, avg_price, equity, score, trades, now),
+                (name, manager, symbol, tf, strategy, pjson, allocation, start_alloc, cash, pos_qty, avg_price, equity, score, trades, now),
             )
             self._conn.commit()
 
     def load_bots(self) -> Dict[str, Dict[str, Any]]:
         with self._lock:
             cur = self._conn.execute(
-                "SELECT name, manager, symbol, tf, strategy, params_json, allocation, cash, pos_qty, avg_price, equity, score, trades FROM bots"
+                "SELECT name, manager, symbol, tf, strategy, params_json, allocation, starting_allocation, cash, pos_qty, avg_price, equity, score, trades FROM bots"
             )
             rows = cur.fetchall()
         out: Dict[str, Dict[str, Any]] = {}
         for r in rows:
-            name, manager, symbol, tf, strategy, pjson, allocation, cash, pos_qty, avg_price, equity, score, trades = r
+            name, manager, symbol, tf, strategy, pjson, allocation, starting_allocation, cash, pos_qty, avg_price, equity, score, trades = r
             out[name] = {
                 "manager": manager,
                 "symbol": symbol,
@@ -272,6 +313,7 @@ class Storage:
                 "strategy": strategy,
                 "params": json.loads(pjson),
                 "allocation": float(allocation),
+                "starting_allocation": float(starting_allocation) if starting_allocation is not None else float(allocation),
                 "cash": float(cash),
                 "pos_qty": float(pos_qty),
                 "avg_price": float(avg_price),
@@ -328,7 +370,7 @@ class Storage:
         Return recent trades (most recent first) with optional filters.
         """
         sql = [
-            "SELECT t.id, t.ts, t.bot_name, b.manager, t.symbol, t.side, t.qty, t.price",
+            "SELECT t.id, t.ts, t.bot_name, b.manager, t.symbol, t.side, t.qty, t.price, t.fee, t.is_maker",
             "FROM trades t LEFT JOIN bots b ON b.name = t.bot_name",
             "WHERE 1=1",
         ]
@@ -365,9 +407,78 @@ class Storage:
                 "side": r[5],
                 "qty": float(r[6]),
                 "price": float(r[7]),
+                "fee": float(r[8] or 0),
+                "is_maker": bool(r[9]),
             }
             for r in rows
         ]
+
+    def fee_statistics(
+            self,
+            *,
+            bot_name: str | None = None,
+            manager: str | None = None,
+    ) -> dict:
+        """
+        Return fee statistics including total fees, maker/taker breakdown.
+        """
+        sql_base = [
+            "SELECT",
+            "  COUNT(*) as total_trades,",
+            "  SUM(t.fee) as total_fees,",
+            "  SUM(CASE WHEN t.is_maker = 1 THEN t.fee ELSE 0 END) as maker_fees,",
+            "  SUM(CASE WHEN t.is_maker = 0 THEN t.fee ELSE 0 END) as taker_fees,",
+            "  SUM(CASE WHEN t.is_maker = 1 THEN 1 ELSE 0 END) as maker_count,",
+            "  SUM(CASE WHEN t.is_maker = 0 THEN 1 ELSE 0 END) as taker_count,",
+            "  SUM(t.qty * t.price) as total_volume",
+            "FROM trades t LEFT JOIN bots b ON b.name = t.bot_name",
+            "WHERE 1=1",
+        ]
+        args: list = []
+
+        if bot_name:
+            sql_base.append("AND t.bot_name = ?")
+            args.append(bot_name)
+        if manager:
+            sql_base.append("AND b.manager = ?")
+            args.append(manager)
+
+        with self._lock:
+            cur = self._conn.execute(" ".join(sql_base), args)
+            row = cur.fetchone()
+
+        if not row or row[0] == 0:
+            return {
+                "total_trades": 0,
+                "total_fees": 0.0,
+                "maker_fees": 0.0,
+                "taker_fees": 0.0,
+                "maker_count": 0,
+                "taker_count": 0,
+                "maker_ratio": 0.0,
+                "total_volume": 0.0,
+                "fee_percentage": 0.0,
+            }
+
+        total_trades = int(row[0])
+        total_fees = float(row[1] or 0)
+        maker_fees = float(row[2] or 0)
+        taker_fees = float(row[3] or 0)
+        maker_count = int(row[4] or 0)
+        taker_count = int(row[5] or 0)
+        total_volume = float(row[6] or 0)
+
+        return {
+            "total_trades": total_trades,
+            "total_fees": total_fees,
+            "maker_fees": maker_fees,
+            "taker_fees": taker_fees,
+            "maker_count": maker_count,
+            "taker_count": taker_count,
+            "maker_ratio": maker_count / total_trades if total_trades > 0 else 0,
+            "total_volume": total_volume,
+            "fee_percentage": (total_fees / total_volume * 100) if total_volume > 0 else 0,
+        }
 
     def trade_counts(self) -> dict[str, int]:
         with self._lock:
@@ -376,6 +487,70 @@ class Storage:
             )
             rows = cur.fetchall()
         return {name: int(cnt) for (name, cnt) in rows}
+
+    def calculate_realized_pnl(self, exclude_stablecoin_pairs: bool = True) -> float:
+        """
+        Calculate total realized P&L from closed round-trips.
+        Optionally excludes stablecoin-to-stablecoin conversions (USDC_USDT, etc.).
+        """
+        # Define stablecoin pairs to exclude
+        stablecoin_pairs = {'USDC_USDT', 'BUSD_USDT', 'USDT_USDC', 'USDT_BUSD'}
+
+        # Get all round-trips (no limit)
+        roundtrips = self.list_roundtrips(limit=100000)
+
+        total_pnl = 0.0
+        for rt in roundtrips:
+            symbol = rt.get('symbol', '')
+
+            # Skip stablecoin conversions if requested
+            if exclude_stablecoin_pairs and symbol in stablecoin_pairs:
+                continue
+
+            # Add the P&L from this round-trip
+            pnl = rt.get('pnl', 0.0)
+            total_pnl += pnl
+
+        return total_pnl
+
+    def calculate_todays_pnl(self) -> float:
+        """
+        Calculate total P&L from trades executed today (Sydney timezone midnight to now).
+        Uses round-trips closed today, excluding stablecoin conversions.
+        """
+        import datetime
+        from zoneinfo import ZoneInfo
+
+        # Calculate today's start timestamp (Sydney timezone midnight)
+        sydney_tz = ZoneInfo("Australia/Sydney")
+        now = datetime.datetime.now(sydney_tz)
+        today_start = datetime.datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=sydney_tz)
+        today_ts = int(today_start.timestamp())
+
+        # Define stablecoin pairs to exclude
+        stablecoin_pairs = {'USDC_USDT', 'BUSD_USDT', 'USDT_USDC', 'USDT_BUSD'}
+
+        # Get all round-trips
+        roundtrips = self.list_roundtrips(limit=100000)
+
+        todays_pnl = 0.0
+        for rt in roundtrips:
+            # Check if round-trip closed today (use exit_ts)
+            exit_ts = rt.get('exit_ts', 0)
+            if exit_ts < today_ts:
+                continue
+
+            symbol = rt.get('symbol', '')
+
+            # Skip stablecoin conversions
+            if symbol in stablecoin_pairs:
+                continue
+
+            # Add the P&L from this round-trip
+            pnl = rt.get('pnl', 0.0)
+            todays_pnl += pnl
+
+        return todays_pnl
 
     # ── Round-trips (buy→sell or sell→buy cycles) ─────────────────────────────
     def list_roundtrips(
@@ -551,9 +726,9 @@ class Storage:
         return sorted(out, key=lambda x: x["open_ts"], reverse=True)
 
     # ── Saved backtests ────────────────────────────────────────────────────────
-    def save_backtest(self, *, name: str, strategy: str, symbol: str, timeframe: str,
+    def save_strategy(self, *, name: str, strategy: str, symbol: str, timeframe: str,
                       params: Dict[str, Any], initial_capital: float, min_notional: float, days: int = 365) -> int:
-        """Save a backtest configuration. Returns the saved ID."""
+        """Save a strategy configuration. Returns the saved ID."""
         params_json = json.dumps(params, separators=(",", ":"))
         now = int(time.time())
 
@@ -577,8 +752,8 @@ class Storage:
             self._conn.commit()
             return cur.lastrowid
 
-    def list_saved_backtests(self) -> list[dict]:
-        """List all saved backtest configurations."""
+    def list_saved_strategies(self) -> list[dict]:
+        """List all saved strategy configurations."""
         with self._lock:
             cur = self._conn.execute(
                 "SELECT id, name, strategy, symbol, timeframe, params_json, initial_capital, min_notional, days, created_ts FROM saved_backtests ORDER BY created_ts DESC"
@@ -601,12 +776,43 @@ class Storage:
             for r in rows
         ]
 
-    def delete_saved_backtest(self, backtest_id: int) -> bool:
-        """Delete a saved backtest configuration. Returns True if deleted."""
+    def get_saved_strategy(self, strategy_id: int) -> dict | None:
+        """Get a specific saved strategy configuration by ID."""
         with self._lock:
-            cur = self._conn.execute("DELETE FROM saved_backtests WHERE id = ?", (int(backtest_id),))
+            cur = self._conn.execute(
+                "SELECT id, name, strategy, symbol, timeframe, params_json, initial_capital, min_notional, days, created_ts FROM saved_backtests WHERE id = ?",
+                (int(strategy_id),)
+            )
+            row = cur.fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "id": int(row[0]),
+            "name": row[1],
+            "strategy": row[2],
+            "symbol": row[3],
+            "timeframe": row[4],
+            "params": json.loads(row[5]),
+            "initial_capital": float(row[6]),
+            "min_notional": float(row[7]),
+            "days": int(row[8]),
+            "created_ts": int(row[9]),
+        }
+
+    def delete_saved_strategy(self, strategy_id: int) -> bool:
+        """Delete a saved strategy configuration. Returns True if deleted."""
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM saved_backtests WHERE id = ?", (int(strategy_id),))
             self._conn.commit()
             return cur.rowcount > 0
+
+    # Backward compatibility aliases (deprecated, use save_strategy/list_saved_strategies instead)
+    save_backtest = save_strategy
+    list_saved_backtests = list_saved_strategies
+    get_saved_backtest = get_saved_strategy
+    delete_saved_backtest = delete_saved_strategy
 
     # ── Optimization results ───────────────────────────────────────────────────
     def save_optimization_result(
@@ -815,6 +1021,46 @@ class Storage:
             for r in rows
         ]
 
+    def get_top_evolved_strategies_for_portfolio(self, num_strategies: int = 5, min_score: float = 0.0) -> list[dict]:
+        """
+        Get top N UNIQUE evolved strategies across all symbols for live trading.
+        Only returns profitable strategies (score > min_score).
+        Sorted by score (best first).
+
+        Ensures diversity by deduplicating: only includes strategies with unique (symbol, genome) pairs.
+        This prevents running multiple copies of the same strategy.
+
+        Returns: List of dicts with genome, symbol, timeframe, score, etc.
+        """
+        # Fetch more strategies than needed to ensure we find enough unique ones
+        # (3x should be plenty since we're already filtering by min_score)
+        candidates = self.list_evolved_strategies(
+            symbol=None,  # All symbols
+            min_score=min_score,
+            limit=num_strategies * 3
+        )
+
+        unique_strategies = []
+        seen_pairs = set()  # Track (symbol, genome_hash) to ensure uniqueness
+
+        for strategy in candidates:
+            # Create a deterministic hash of the genome for comparison
+            genome_str = json.dumps(strategy["genome"], sort_keys=True)
+            genome_hash = hash(genome_str)
+
+            # Key is (symbol, genome_hash) - ensures diversity across symbols AND genomes
+            key = (strategy["symbol"], genome_hash)
+
+            if key not in seen_pairs:
+                seen_pairs.add(key)
+                unique_strategies.append(strategy)
+
+                # Stop once we have enough unique strategies
+                if len(unique_strategies) >= num_strategies:
+                    break
+
+        return unique_strategies
+
     def get_evolved_strategy(self, strategy_id: int) -> dict | None:
         """Get a specific evolved strategy by ID."""
         with self._lock:
@@ -922,6 +1168,35 @@ class Storage:
             "end_ts": int(row[1]),
             "count": int(row[2]),
         }
+
+    # ── Settings ───────────────────────────────────────────────────────────────
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        """Get a setting value from database. Returns default if not found."""
+        with self._lock:
+            cur = self._conn.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            row = cur.fetchone()
+
+        if not row:
+            return default
+
+        # Try to parse as JSON, fallback to raw string
+        try:
+            return json.loads(row[0])
+        except (json.JSONDecodeError, TypeError):
+            return row[0]
+
+    def set_setting(self, key: str, value: Any) -> None:
+        """Set a setting value in database. Value will be JSON-encoded."""
+        value_json = json.dumps(value) if not isinstance(value, str) else value
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO settings(key, value) VALUES(?,?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value
+                """,
+                (key, value_json)
+            )
+            self._conn.commit()
 
 
 store = Storage(_DB_DEFAULT)  # simple singleton
