@@ -111,6 +111,34 @@
           <strong>⚠️ Restart required after changing capital limit.</strong> Limits how much USDT is allocated for trading (e.g., $5k out of $100k balance).
         </small>
       </div>
+
+      <!-- Timeframe Control -->
+      <div class="border-top pt-3 mt-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div class="d-flex align-items-center gap-2">
+            <label for="timeframeSelect" class="form-label mb-0" style="font-size: 0.9rem;">Trading Timeframe:</label>
+            <span class="text-success fw-bold" id="timeframeStatus" style="font-size: 0.85rem;">1d (Daily)</span>
+          </div>
+          <div class="d-flex gap-2">
+            <select class="form-select form-select-sm" id="timeframeSelect" style="width: 120px;">
+              <option value="1m">1m (1 minute)</option>
+              <option value="5m">5m (5 minutes)</option>
+              <option value="15m">15m (15 minutes)</option>
+              <option value="30m">30m (30 minutes)</option>
+              <option value="1h">1h (1 hour)</option>
+              <option value="4h">4h (4 hours)</option>
+              <option value="1d" selected>1d (Daily)</option>
+              <option value="1w">1w (Weekly)</option>
+            </select>
+            <button class="btn btn-sm btn-primary" onclick="setTimeframe()">Set Timeframe</button>
+          </div>
+        </div>
+        <small class="text-danger d-block mt-2" style="font-size: 0.8rem;">
+          <strong>🚨 CRITICAL: Restart required after changing timeframe.</strong><br>
+          Your strategies were optimized on a specific timeframe. Using a different timeframe will result in poor performance!<br>
+          Default is 1d (daily) to match optimization/evolution. Only change if you've re-optimized on the new timeframe.
+        </small>
+      </div>
     </div>
   </div>
 
@@ -705,7 +733,7 @@
     const autoChk = document.getElementById("autoRefresh");
     const refreshBtn = document.getElementById("refreshBtn");
     const tfTag = document.getElementById("tfTag");
-    tfTag.textContent = "TF: 1m";
+    // Timeframe will be loaded from API in loadTradingStatus()
 
     async function loadFees() {
       try {
@@ -759,6 +787,27 @@
           capitalLimitStatus.className = 'text-muted';
           capitalLimitInput.value = '';
         }
+
+        // Update timeframe status and dropdown
+        const timeframe = data.trading_timeframe || '1d';
+        const timeframeStatus = document.getElementById('timeframeStatus');
+        const timeframeSelect = document.getElementById('timeframeSelect');
+        const tfTag = document.getElementById('tfTag');
+
+        const timeframeLabels = {
+          '1m': '1m (1 minute)',
+          '5m': '5m (5 minutes)',
+          '15m': '15m (15 minutes)',
+          '30m': '30m (30 minutes)',
+          '1h': '1h (1 hour)',
+          '4h': '4h (4 hours)',
+          '1d': '1d (Daily)',
+          '1w': '1w (Weekly)'
+        };
+
+        timeframeStatus.textContent = timeframeLabels[timeframe] || timeframe;
+        timeframeSelect.value = timeframe;
+        tfTag.textContent = `TF: ${timeframe}`;
       } catch (err) {
         console.error('Error loading trading status:', err);
       }
@@ -819,6 +868,52 @@
       } catch (err) {
         console.error('Error clearing capital limit:', err);
         alert('Error clearing capital limit. See console for details.');
+      }
+    }
+
+    async function setTimeframe() {
+      const select = document.getElementById('timeframeSelect');
+      const timeframe = select.value;
+
+      const timeframeNames = {
+        '1m': '1 minute',
+        '5m': '5 minutes',
+        '15m': '15 minutes',
+        '30m': '30 minutes',
+        '1h': '1 hour',
+        '4h': '4 hours',
+        '1d': 'Daily',
+        '1w': 'Weekly'
+      };
+
+      const confirmMsg = `🚨 CRITICAL WARNING 🚨\n\nSet trading timeframe to ${timeframe} (${timeframeNames[timeframe]})?\n\n` +
+        `⚠️ You MUST restart the app for this to take effect.\n\n` +
+        `🔴 IMPORTANT: Your strategies were optimized on a specific timeframe!\n` +
+        `Using a different timeframe than what they were tested on will result in POOR PERFORMANCE.\n\n` +
+        `Only change this if you have re-optimized your strategies on ${timeframe}.`;
+
+      if (!confirm(confirmMsg)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/set-timeframe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ timeframe: timeframe })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert(`✅ ${data.message}\n\n${data.warning}`);
+          loadTradingStatus();
+        } else {
+          alert('Failed to set timeframe: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error setting timeframe:', err);
+        alert('Error setting timeframe. See console for details.');
       }
     }
 

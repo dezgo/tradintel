@@ -12,10 +12,17 @@ from app.strategies import MeanReversion, Breakout, TrendFollow, MR_GRID, BO_GRI
 from app.storage import store
 
 SYMBOLS = ["BTC_USDT", "ETH_USDT", "SOL_USDT"]
-TF = "1m"
 
 # Execution mode: 'paper' or 'binance_testnet'
 EXECUTION_MODE = "binance_testnet"  # Change this to switch between paper and testnet
+
+# Timeframe - loaded from database setting (default: 1d to match optimization/evolution)
+# CRITICAL: This must match the timeframe used for optimization/evolution!
+# Changing this without re-optimizing strategies will result in invalid performance.
+def _get_timeframe() -> str:
+    """Get trading timeframe from database setting. Defaults to 1d (daily bars)."""
+    tf = store.get_setting("trading_timeframe", default="1d")
+    return str(tf)
 
 
 def _get_capital_per_bot(total_bots: int) -> float:
@@ -120,6 +127,11 @@ def _apply_saved_state(bots: list) -> None:
 
 def build_portfolio(data_provider: DataProvider | None = None) -> PortfolioManager:
     data = data_provider or GateAdapter()
+
+    # Get timeframe from database setting
+    TF = _get_timeframe()
+    print(f"📈 Trading Timeframe: {TF}")
+    print(f"⚠️  Ensure this matches your optimization/evolution timeframe!")
 
     # Calculate total number of bots to determine capital allocation
     total_bots = len(SYMBOLS) * (len(MR_GRID) + len(BO_GRID) + len(TF_GRID))
