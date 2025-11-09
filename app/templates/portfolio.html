@@ -46,26 +46,35 @@
   <div class="row g-2 g-md-3 mb-3">
     <div class="col-6 col-md-3">
       <div class="card text-center" style="padding: 1.5rem 1rem;">
-        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Total Equity</div>
-        <div class="mono" style="font-size: 2rem; font-weight: 600; color: var(--text);" id="kpiEquity">$0</div>
+        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Current Value</div>
+        <div class="mono" style="font-size: 2rem; font-weight: 600; color: var(--text);" id="kpiCurrentValue">$0</div>
+        <div class="muted small" style="margin-top: 0.5rem; font-size: 0.7rem;">Started: <span id="kpiStartingCapital">$0</span></div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card text-center" style="padding: 1.5rem 1rem;">
+        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Total P&L</div>
+        <div class="mono" style="font-size: 2rem; font-weight: 600;" id="kpiTotalPnl">$0</div>
+        <div class="small" style="margin-top: 0.5rem; font-size: 0.7rem;">
+          <span class="muted">Realized:</span> <span id="kpiRealizedPnl">$0</span> •
+          <span class="muted">Unrealized:</span> <span id="kpiUnrealizedPnl">$0</span>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card text-center" style="padding: 1.5rem 1rem;">
+        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Total Return</div>
+        <div class="mono" style="font-size: 2rem; font-weight: 600;" id="kpiTotalReturn">0%</div>
+        <div class="muted small" style="margin-top: 0.5rem; font-size: 0.7rem;">
+          <span id="kpiPositions">0</span> positions • <span id="kpiTrades">0</span> trades
+        </div>
       </div>
     </div>
     <div class="col-6 col-md-3">
       <div class="card text-center" style="padding: 1.5rem 1rem;">
         <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Active Workers</div>
         <div class="mono" style="font-size: 2rem; font-weight: 600; color: var(--text);" id="kpiWorkers">0</div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="card text-center" style="padding: 1.5rem 1rem;">
-        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Open Positions</div>
-        <div class="mono" style="font-size: 2rem; font-weight: 600; color: var(--text);" id="kpiPositions">0</div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="card text-center" style="padding: 1.5rem 1rem;">
-        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Total Trades</div>
-        <div class="mono" style="font-size: 2rem; font-weight: 600; color: var(--text);" id="kpiTrades">0</div>
+        <div class="muted small" style="margin-top: 0.5rem; font-size: 0.7rem;">of <span id="kpiTotalWorkers">0</span> total</div>
       </div>
     </div>
   </div>
@@ -307,9 +316,7 @@
     }
 
     function updateKPIs(snap) {
-      const totalEq = snap.strategies.reduce((a, s) =>
-        a + s.bots.reduce((bacc, b) => bacc + Number(b.equity), 0), 0
-      );
+      const metrics = snap.portfolio_metrics || {};
       const totalTrades = snap.strategies.reduce((a, s) =>
         a + s.bots.reduce((bacc, b) => bacc + Number(b.trades), 0), 0
       );
@@ -317,10 +324,37 @@
         openPositions.some(p => p.bot === w.name)
       ).length;
 
-      document.getElementById("kpiEquity").textContent = money(totalEq);
-      document.getElementById("kpiWorkers").textContent = `${activeWorkers}/${allWorkers.length}`;
+      // Current Value & Starting Capital
+      document.getElementById("kpiCurrentValue").textContent = money(metrics.current_value || 0);
+      document.getElementById("kpiStartingCapital").textContent = money(metrics.starting_capital || 0);
+
+      // Total P&L with color coding
+      const totalPnl = metrics.total_pnl || 0;
+      const totalPnlEl = document.getElementById("kpiTotalPnl");
+      totalPnlEl.textContent = money(totalPnl);
+      totalPnlEl.style.color = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
+
+      // Realized & Unrealized P&L
+      const realizedPnl = metrics.realized_pnl || 0;
+      const unrealizedPnl = metrics.unrealized_pnl || 0;
+      document.getElementById("kpiRealizedPnl").textContent = money(realizedPnl);
+      document.getElementById("kpiRealizedPnl").style.color = realizedPnl >= 0 ? 'var(--green)' : 'var(--red)';
+      document.getElementById("kpiUnrealizedPnl").textContent = money(unrealizedPnl);
+      document.getElementById("kpiUnrealizedPnl").style.color = unrealizedPnl >= 0 ? 'var(--green)' : 'var(--red)';
+
+      // Total Return % with color coding
+      const returnPct = metrics.total_return_pct || 0;
+      const returnEl = document.getElementById("kpiTotalReturn");
+      returnEl.textContent = (returnPct >= 0 ? '+' : '') + returnPct.toFixed(2) + '%';
+      returnEl.style.color = returnPct >= 0 ? 'var(--green)' : 'var(--red)';
+
+      // Positions & Trades
       document.getElementById("kpiPositions").textContent = openPositions.length;
       document.getElementById("kpiTrades").textContent = totalTrades;
+
+      // Workers
+      document.getElementById("kpiWorkers").textContent = activeWorkers;
+      document.getElementById("kpiTotalWorkers").textContent = allWorkers.length;
     }
 
     function renderStrategyBars(snap) {
