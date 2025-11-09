@@ -468,7 +468,15 @@ def create_app() -> Flask:
             total_bots = len(SYMBOLS) * (len(MR_GRID) + len(BO_GRID) + len(TF_GRID))
             initial_capital = _get_capital_per_bot(total_bots)
 
+            print(f"\n{'='*60}")
+            print(f"RESET: Recalculating capital allocation")
+            print(f"  Total bots: {total_bots}")
+            print(f"  Capital per bot: ${initial_capital:.2f}")
+            print(f"  Total starting capital: ${total_bots * initial_capital:.2f}")
+            print(f"{'='*60}\n")
+
             # Reset all bots to initial state
+            reset_count = 0
             for manager in _pm.managers:
                 for bot in manager.bots:
                     # Reset both allocation AND metrics to fresh initial capital
@@ -480,6 +488,7 @@ def create_app() -> Flask:
                     bot.metrics.cum_pnl = 0.0
                     bot.metrics.trades = 0
                     bot.metrics.score = 0.0
+                    reset_count += 1
 
                     # Update DB
                     params = bot.strategy.to_params() if hasattr(bot.strategy, "to_params") else {}
@@ -498,6 +507,8 @@ def create_app() -> Flask:
                         score=bot.metrics.score,
                         trades=bot.metrics.trades,
                     )
+
+            print(f"✓ Reset {reset_count} bots to ${initial_capital:.2f} each\n")
 
             total_equity = total_bots * initial_capital
 
