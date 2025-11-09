@@ -514,8 +514,8 @@ def create_app() -> Flask:
         quantity = data.get("quantity")
         order_type = data.get("order_type", "market").lower()
 
-        if not symbol or symbol not in ["BTC_USDT", "ETH_USDT", "SOL_USDT"]:
-            return jsonify({"error": "Invalid symbol. Must be BTC_USDT, ETH_USDT, or SOL_USDT"}), 400
+        if not symbol or symbol not in ["BTC_USDT", "ETH_USDT", "SOL_USDT", "USDC_USDT"]:
+            return jsonify({"error": "Invalid symbol. Must be BTC_USDT, ETH_USDT, SOL_USDT, or USDC_USDT"}), 400
 
         if side not in ["buy", "sell"]:
             return jsonify({"error": "Invalid side. Must be 'buy' or 'sell'"}), 400
