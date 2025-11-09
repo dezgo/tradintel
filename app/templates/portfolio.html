@@ -643,12 +643,37 @@
           return;
         }
 
+        // Fetch current prices to calculate USD value
+        const pricesRes = await fetch('/prices.json', { cache: "no-store" });
+        const pricesData = await pricesRes.json();
+
+        // Build price map (symbol -> price)
+        const priceMap = {};
+        (pricesData.items || []).forEach(p => {
+          // Extract base currency from symbol (e.g., "BTC" from "BTC_USDT")
+          const base = p.symbol.split('_')[0];
+          priceMap[base] = p.price;
+        });
+
         // Prioritize coins we're trading and stablecoins
         const priorityCoins = ['BTC', 'ETH', 'SOL', 'USDT', 'BUSD', 'BNB', 'USDC'];
         const priority = [];
         const others = [];
+        let totalUsdValue = 0;
 
         data.balances.forEach(bal => {
+          // Calculate USD value
+          let usdValue = 0;
+          if (bal.asset === 'USDT' || bal.asset === 'BUSD' || bal.asset === 'USDC') {
+            // Stablecoins are 1:1 with USD
+            usdValue = bal.total;
+          } else if (priceMap[bal.asset]) {
+            usdValue = bal.total * priceMap[bal.asset];
+          }
+
+          bal.usdValue = usdValue;
+          totalUsdValue += usdValue;
+
           if (priorityCoins.includes(bal.asset)) {
             priority.push(bal);
           } else {
@@ -659,8 +684,15 @@
         // Sort priority by our list order
         priority.sort((a, b) => priorityCoins.indexOf(a.asset) - priorityCoins.indexOf(b.asset));
 
-        // Render priority balances
-        let balanceHtml = `<div class="row g-2">`;
+        // Show total USD value at the top
+        let balanceHtml = `
+          <div class="mb-3 p-3" style="background: var(--page-bg); border-radius: 6px; text-align: center;">
+            <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px;">Total Exchange Value</div>
+            <div class="mono" style="font-size: 2rem; font-weight: 600; color: var(--green);">${money(totalUsdValue)}</div>
+          </div>
+        `;
+
+        balanceHtml += `<div class="row g-2">`;
 
         priority.forEach(bal => {
           balanceHtml += `
@@ -669,6 +701,7 @@
                 <div class="muted small">${bal.asset}</div>
                 <div class="mono" style="font-size: 1.25rem; font-weight: 600;">${bal.total.toFixed(8)}</div>
                 <div class="muted" style="font-size: 0.7rem;">
+                  ${bal.usdValue > 0 ? `≈ ${money(bal.usdValue)}<br>` : ''}
                   Free: ${bal.free.toFixed(8)}
                   ${bal.locked > 0 ? `<br>Locked: ${bal.locked.toFixed(8)}` : ''}
                 </div>
@@ -693,6 +726,7 @@
                       <div style="background: var(--page-bg); border-radius: 6px; padding: 0.5rem;">
                         <div class="muted small">${bal.asset}</div>
                         <div class="mono small">${bal.total.toFixed(8)}</div>
+                        ${bal.usdValue > 0 ? `<div class="muted" style="font-size: 0.65rem;">≈ ${money(bal.usdValue)}</div>` : ''}
                       </div>
                     </div>
                   `).join('')}
