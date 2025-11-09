@@ -419,7 +419,7 @@ def create_app() -> Flask:
             if strategy_prefix == "saved":
                 # Load saved strategy from database
                 from app.storage import store
-                saved_strat = store.get_saved_backtest(strategy_id)
+                saved_strat = store.get_saved_strategy(strategy_id)
                 if not saved_strat:
                     return jsonify({"error": f"Saved strategy {strategy_id} not found"}), 404
 
@@ -512,7 +512,7 @@ def create_app() -> Flask:
 
         # Add saved strategies (from strategy builder / backtest clones)
         try:
-            saved_strategies = store.list_saved_backtests()
+            saved_strategies = store.list_saved_strategies()
             for s in saved_strategies:
                 strategies.append({
                     "id": f"saved:{s['id']}",
