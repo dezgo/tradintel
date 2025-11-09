@@ -18,6 +18,32 @@ _selector = AutoParamSelector()  # default: refresh every 30m
 _auto_rebalance_enabled = False  # Global flag for automatic strategy rebalancing
 
 
+def _ensure_manual_trade_bot():
+    """Ensure 'manual_trade' bot exists in database for manual trading."""
+    from app.storage import store
+
+    # Check if manual_trade bot already exists
+    existing_bots = store.load_bots()
+    if "manual_trade" not in existing_bots:
+        # Create a dummy bot entry for manual trades
+        store.upsert_bot(
+            name="manual_trade",
+            manager="manual",
+            symbol="MULTI",  # Can trade multiple symbols
+            tf="manual",
+            strategy="Manual",
+            params={},
+            allocation=0.0,  # Manual trades don't have bot allocation
+            cash=0.0,
+            pos_qty=0.0,
+            avg_price=0.0,
+            equity=0.0,
+            score=0.0,
+            trades=0,
+        )
+        print("[App] Created 'manual_trade' bot entry for manual trading")
+
+
 def _initialize_presets():
     """Initialize quick presets as saved strategies if they don't exist."""
     from app.storage import store
@@ -73,6 +99,7 @@ def create_app() -> Flask:
 
     # Initialize quick presets as saved strategies
     _initialize_presets()
+    _ensure_manual_trade_bot()  # Ensure manual_trade bot exists for manual trading
 
     # Start strategy optimizer in background
     if not os.getenv("APP_DISABLE_OPTIMIZER"):
