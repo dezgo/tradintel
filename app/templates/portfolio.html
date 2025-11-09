@@ -84,6 +84,19 @@
     </div>
   </div>
 
+  <!-- Trading Decisions Log -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h6 mb-0">Trading Decisions <span class="badge badge-active" id="decisionsCount" style="font-size: 0.7rem; margin-left: 0.5rem;">0</span></h2>
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadDecisions()">↻ Refresh</button>
+      </div>
+      <div id="decisionsContent">
+        <div class="muted small">Loading...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Strategy Performance -->
   <div class="card mb-3">
     <div class="card-body">
@@ -582,7 +595,9 @@
         const data = await res.json();
 
         if (data.success) {
-          alert(`✅ Reset complete!\n\nCleared all trades and reset ${data.bots_reset} bots.\n\nRefreshing page...`);
+          const capitalPerBot = data.capital_per_bot ? `$${data.capital_per_bot.toFixed(2)}` : 'N/A';
+          const totalEquity = data.total_equity ? `$${data.total_equity.toFixed(2)}` : 'N/A';
+          alert(`✅ Reset complete!\n\nReset ${data.bots_reset} bots\nCapital per bot: ${capitalPerBot}\nTotal equity: ${totalEquity}\n\nRefreshing page...`);
           location.reload();
         } else {
           alert('Reset failed: ' + (data.error || 'Unknown error'));
@@ -694,6 +709,80 @@
       }
     }
 
+    async function loadDecisions() {
+      try {
+        const res = await fetch('/decisions.json', { cache: "no-store" });
+        const data = await res.json();
+        const items = data.items || [];
+
+        document.getElementById("decisionsCount").textContent = items.length;
+
+        if (items.length === 0) {
+          document.getElementById("decisionsContent").innerHTML = '<div class="muted small">No recent decisions</div>';
+          return;
+        }
+
+        // Show last 10 decisions
+        const recent = items.slice(0, 10);
+
+        let html = '<div class="table-responsive"><table class="table table-sm table-dark mb-0" style="font-size: 0.85rem;"><thead><tr>';
+        html += '<th style="width: 100px;">Time</th>';
+        html += '<th>Bot</th>';
+        html += '<th>Type</th>';
+        html += '<th>Details</th>';
+        html += '</tr></thead><tbody>';
+
+        recent.forEach(d => {
+          const timeAgo = Math.floor((Date.now() / 1000) - d.timestamp);
+          const timeStr = timeAgo < 60 ? `${timeAgo}s ago` :
+                         timeAgo < 3600 ? `${Math.floor(timeAgo / 60)}m ago` :
+                         `${Math.floor(timeAgo / 3600)}h ago`;
+
+          let typeClass = 'badge-down';
+          let typeLabel = d.type;
+          let details = '';
+
+          if (d.type === 'signal') {
+            typeClass = d.signal > 0 ? 'badge-up' : 'badge-down';
+            typeLabel = d.signal > 0 ? 'BUY Signal' : 'SELL Signal';
+            details = `Signal: ${d.signal.toFixed(2)}, Target: ${d.target_position?.toFixed(4) || 'N/A'}, Delta: $${(Math.abs(d.delta || 0) * (d.price || 0)).toFixed(2)}`;
+          } else if (d.type === 'trade_executed') {
+            typeClass = d.side === 'buy' ? 'badge-up' : 'badge-down';
+            typeLabel = `${d.side.toUpperCase()} Executed`;
+            const makerLabel = d.is_maker ? 'maker' : 'taker';
+            details = `${d.quantity?.toFixed(4) || 'N/A'} @ $${d.fill_price?.toFixed(2) || 'N/A'} (${makerLabel}), Fee: $${d.fee?.toFixed(2) || '0'}`;
+          } else if (d.type === 'skip_min_notional') {
+            typeClass = 'badge-down';
+            typeLabel = 'Skip: Too Small';
+            details = `Delta: $${d.delta_notional?.toFixed(2) || 'N/A'} < $${d.min_required || 100} min`;
+          } else if (d.type === 'skip_cooldown') {
+            typeClass = 'badge-down';
+            typeLabel = 'Skip: Cooldown';
+            details = `${d.cooldown_remaining || 0}s remaining`;
+          }
+
+          html += `<tr>
+            <td class="muted small">${timeStr}</td>
+            <td class="mono small">${d.bot}</td>
+            <td><span class="badge ${typeClass}" style="font-size: 0.7rem;">${typeLabel}</span></td>
+            <td class="small muted">${details}</td>
+          </tr>`;
+        });
+
+        html += '</tbody></table></div>';
+
+        if (items.length > 10) {
+          html += `<div class="muted small mt-2 text-center">Showing 10 of ${items.length} recent decisions</div>`;
+        }
+
+        document.getElementById("decisionsContent").innerHTML = html;
+
+      } catch (err) {
+        console.error('Error loading decisions:', err);
+        document.getElementById("decisionsContent").innerHTML = '<div class="text-danger small">Error loading decisions</div>';
+      }
+    }
+
     function refreshAll() {
       load();
       loadPrices();
@@ -701,6 +790,7 @@
       loadRoundtrips();
       loadFees();
       loadExchangeBalance();
+      loadDecisions();
     }
 
     function startLoop() {
@@ -725,7 +815,8 @@
       loadRoundtrips(),
       loadAutoRebalanceStatus(),
       loadFees(),
-      loadExchangeBalance()
+      loadExchangeBalance(),
+      loadDecisions()
     ]).then(() => {
       if (autoChk.checked) startLoop();
     });

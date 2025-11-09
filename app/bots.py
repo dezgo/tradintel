@@ -3,9 +3,29 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Dict, Deque
 from app.core import Bar, Strategy, DataProvider, ExecutionClient
+
+# Global decision log for debugging/monitoring (last 100 decisions)
+_decision_log: Deque[Dict] = deque(maxlen=100)
+
+
+def get_decision_log() -> List[Dict]:
+    """Return recent trading decisions for monitoring."""
+    return list(_decision_log)
+
+
+def _log_decision(bot_name: str, symbol: str, decision_type: str, details: Dict) -> None:
+    """Log a trading decision for monitoring."""
+    _decision_log.append({
+        "timestamp": int(time.time()),
+        "bot": bot_name,
+        "symbol": symbol,
+        "type": decision_type,
+        **details
+    })
 
 
 @dataclass
@@ -68,11 +88,29 @@ class TradingBot:
         # 3) Delta to trade
         delta = target_qty - self.metrics.pos_qty
 
+        # Log strategy signal
+        if target_exp != 0:
+            _log_decision(self.name, self.symbol, "signal", {
+                "signal": target_exp,
+                "price": price,
+                "current_position": self.metrics.pos_qty,
+                "target_position": target_qty,
+                "delta": delta,
+                "strategy": type(self.strategy).__name__
+            })
+
         min_notional = 100.0  # don't trade if change is < $100
         if abs(delta) * price < min_notional:
             # still update equity mark-to-market, but skip order
             self.metrics.avg_price = price
             self.metrics.equity = self.metrics.cash + self.metrics.pos_qty * price
+            if abs(target_exp) > 0.01:  # Only log if there was a meaningful signal
+                _log_decision(self.name, self.symbol, "skip_min_notional", {
+                    "signal": target_exp,
+                    "delta_notional": abs(delta) * price,
+                    "min_required": min_notional,
+                    "price": price
+                })
             return
 
         # Trade cooldown: prevent trading more than once per 5 minutes
@@ -81,6 +119,12 @@ class TradingBot:
             # Still update equity but skip trading
             self.metrics.avg_price = price
             self.metrics.equity = self.metrics.cash + self.metrics.pos_qty * price
+            _log_decision(self.name, self.symbol, "skip_cooldown", {
+                "signal": target_exp,
+                "seconds_since_last_trade": now - self._last_trade_ts,
+                "cooldown_remaining": 300 - (now - self._last_trade_ts),
+                "price": price
+            })
             return
 
         if abs(delta) > 1e-9:
@@ -108,6 +152,7 @@ class TradingBot:
             filled_qty = result.get("filled_qty", trade_qty)
             avg_price = result.get("avg_price", limit_price)
             fee = result.get("fee", 0.0)
+            is_maker = result.get("is_maker", False)
 
             if side == "buy":
                 total_cost = filled_qty * avg_price + fee  # cost + fees
@@ -120,6 +165,20 @@ class TradingBot:
 
             self.metrics.trades += 1
             self._last_trade_ts = now  # Update last trade timestamp
+
+            # Log the executed trade
+            _log_decision(self.name, self.symbol, "trade_executed", {
+                "signal": target_exp,
+                "side": side,
+                "quantity": filled_qty,
+                "limit_price": limit_price,
+                "fill_price": avg_price,
+                "fee": fee,
+                "is_maker": is_maker,
+                "notional": filled_qty * avg_price,
+                "new_position": self.metrics.pos_qty,
+                "strategy": type(self.strategy).__name__
+            })
 
         # 4) Mark-to-market
         self.metrics.avg_price = price
