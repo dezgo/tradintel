@@ -16,6 +16,7 @@ _optimizer_thread: threading.Thread | None = None
 _evolver_thread: threading.Thread | None = None
 _selector = AutoParamSelector()  # default: refresh every 30m
 _auto_rebalance_enabled = False  # Global flag for automatic strategy rebalancing
+_trading_paused = False  # Global flag to pause all trading
 
 
 def _ensure_manual_trade_bot():
@@ -444,14 +445,25 @@ def create_app() -> Flask:
         DANGER: Reset all trading state for testing purposes.
         Clears all trades, positions, and resets bots to initial state.
         Only use this in testnet/paper trading!
+
+        SAFETY: Requires trading to be paused or all positions liquidated before reset.
         """
         from app.storage import store
         from app.portfolio import EXECUTION_MODE, SYMBOLS
         from app.strategies import MR_GRID, BO_GRID, TF_GRID
         from app.portfolio import _get_capital_per_bot
+        global _trading_paused
 
         if EXECUTION_MODE not in ["paper", "binance_testnet"]:
             return jsonify({"error": "Reset only allowed in paper/testnet mode"}), 403
+
+        # Safety check: Require trading to be paused first
+        if not _trading_paused:
+            return jsonify({
+                "error": "Trading must be paused before reset",
+                "message": "For safety, pause trading or liquidate all positions before resetting.",
+                "action_required": "pause_or_liquidate"
+            }), 400
 
         try:
             # Clear all trades and decision log
@@ -519,6 +531,129 @@ def create_app() -> Flask:
                 "bots_reset": total_bots,
                 "capital_per_bot": initial_capital,
                 "total_equity": total_equity
+            })
+
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.post("/api/pause-trading")
+    def pause_trading():
+        """Pause all trading. Bots will stop executing trades but keep positions."""
+        global _trading_paused
+        _trading_paused = True
+        print("\n🛑 TRADING PAUSED - No new trades will be executed\n")
+        return jsonify({
+            "success": True,
+            "message": "Trading paused. No new trades will be executed.",
+            "trading_paused": True
+        })
+
+    @app.post("/api/resume-trading")
+    def resume_trading():
+        """Resume trading after pause."""
+        global _trading_paused
+        _trading_paused = False
+        print("\n▶️  TRADING RESUMED - Bots will execute trades normally\n")
+        return jsonify({
+            "success": True,
+            "message": "Trading resumed. Bots will execute trades normally.",
+            "trading_paused": False
+        })
+
+    @app.get("/api/trading-status")
+    def trading_status():
+        """Get current trading pause status."""
+        return jsonify({
+            "trading_paused": _trading_paused
+        })
+
+    @app.post("/api/liquidate-all")
+    def liquidate_all():
+        """
+        EMERGENCY: Close all open positions immediately and pause trading.
+        This will sell all crypto positions and convert to USDT.
+        """
+        from app.portfolio import EXECUTION_MODE
+        global _trading_paused
+
+        if EXECUTION_MODE not in ["paper", "binance_testnet"]:
+            return jsonify({"error": "Liquidation only allowed in paper/testnet mode"}), 403
+
+        try:
+            # Pause trading first
+            _trading_paused = True
+            print("\n🚨 EMERGENCY LIQUIDATION INITIATED 🚨")
+            print("   Trading paused - closing all positions\n")
+
+            liquidated_positions = []
+            total_liquidated_value = 0.0
+
+            # Loop through all bots and close any open positions
+            for manager in _pm.managers:
+                for bot in manager.bots:
+                    # Check if bot has an open position
+                    if bot.metrics.pos_qty != 0:
+                        qty = abs(bot.metrics.pos_qty)
+                        side = "sell" if bot.metrics.pos_qty > 0 else "buy"  # Close position
+
+                        # Get current price
+                        from app.data import GateAdapter
+                        data = GateAdapter()
+                        bars = data.history(bot.symbol, bot.tf, limit=1)
+                        if not bars:
+                            continue
+                        current_price = bars[-1].close
+
+                        # Execute market order to close position
+                        try:
+                            result = bot.exec.paper_order(bot.symbol, side, qty, price_hint=current_price)
+
+                            if result.get("status") == "filled":
+                                filled_qty = result.get("filled_qty", qty)
+                                avg_price = result.get("avg_price", current_price)
+                                fee = result.get("fee", 0.0)
+
+                                # Update bot metrics
+                                if side == "sell":
+                                    proceeds = filled_qty * avg_price - fee
+                                    bot.metrics.cash += proceeds
+                                    bot.metrics.pos_qty = 0
+                                else:  # buy to close short
+                                    cost = filled_qty * avg_price + fee
+                                    bot.metrics.cash -= cost
+                                    bot.metrics.pos_qty = 0
+
+                                bot.metrics.equity = bot.metrics.cash
+                                bot.metrics.avg_price = 0.0
+
+                                liquidated_positions.append({
+                                    "bot": bot.name,
+                                    "symbol": bot.symbol,
+                                    "side": side,
+                                    "quantity": filled_qty,
+                                    "price": avg_price,
+                                    "value": filled_qty * avg_price
+                                })
+
+                                total_liquidated_value += filled_qty * avg_price
+
+                                print(f"   ✓ Liquidated {bot.name}: {side} {filled_qty} {bot.symbol} @ ${avg_price:.2f}")
+
+                        except Exception as e:
+                            print(f"   ✗ Failed to liquidate {bot.name}: {e}")
+
+            print(f"\n✓ Liquidation complete")
+            print(f"   Positions closed: {len(liquidated_positions)}")
+            print(f"   Total value liquidated: ${total_liquidated_value:.2f}")
+            print(f"   Trading remains PAUSED\n")
+
+            return jsonify({
+                "success": True,
+                "message": f"Liquidated {len(liquidated_positions)} positions. Trading paused.",
+                "positions_closed": len(liquidated_positions),
+                "total_value": total_liquidated_value,
+                "liquidated_positions": liquidated_positions,
+                "trading_paused": True
             })
 
         except Exception as e:
