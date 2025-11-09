@@ -17,6 +17,11 @@ def get_decision_log() -> List[Dict]:
     return list(_decision_log)
 
 
+def clear_decision_log() -> None:
+    """Clear all trading decisions from the log."""
+    _decision_log.clear()
+
+
 def _log_decision(bot_name: str, symbol: str, decision_type: str, details: Dict) -> None:
     """Log a trading decision for monitoring."""
     _decision_log.append({

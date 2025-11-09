@@ -427,11 +427,15 @@ def create_app() -> Flask:
             return jsonify({"error": "Reset only allowed in paper/testnet mode"}), 403
 
         try:
-            # Clear all trades
+            # Clear all trades and decision log
             with store._lock:
                 store._conn.execute("DELETE FROM trades")
                 store._conn.execute("DELETE FROM equity_history")
                 store._conn.commit()
+
+            # Clear decision log
+            from app.bots import clear_decision_log
+            clear_decision_log()
 
             # Recalculate initial capital allocation (same as build_portfolio does)
             total_bots = len(SYMBOLS) * (len(MR_GRID) + len(BO_GRID) + len(TF_GRID))
