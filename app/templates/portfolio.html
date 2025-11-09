@@ -75,7 +75,10 @@
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="h6 mb-0">Exchange Balance <span class="badge badge-active" id="executionMode" style="font-size: 0.7rem; margin-left: 0.5rem;">LOADING</span></h2>
-        <button class="btn btn-sm btn-outline-secondary" onclick="loadExchangeBalance()">↻ Refresh</button>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-secondary" onclick="loadExchangeBalance()">↻ Refresh</button>
+          <button class="btn btn-sm btn-outline-danger" onclick="resetForTesting()" id="resetBtn">⚠ Reset All Data</button>
+        </div>
       </div>
       <div id="exchangeBalanceContent"></div>
     </div>
@@ -554,6 +557,43 @@
         document.getElementById("feesVolume").textContent = money(data.total_volume);
       } catch (err) {
         console.error('Error loading fees:', err);
+      }
+    }
+
+    async function resetForTesting() {
+      if (!confirm('⚠️ WARNING: This will DELETE ALL trades, positions, and reset all bots!\n\nThis action cannot be undone.\n\nOnly use this for testing. Are you sure?')) {
+        return;
+      }
+
+      if (!confirm('Are you REALLY sure? All trading history will be permanently deleted!')) {
+        return;
+      }
+
+      try {
+        const btn = document.getElementById('resetBtn');
+        btn.disabled = true;
+        btn.textContent = 'Resetting...';
+
+        const res = await fetch('/api/reset-for-testing', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          alert(`✅ Reset complete!\n\nCleared all trades and reset ${data.bots_reset} bots.\n\nRefreshing page...`);
+          location.reload();
+        } else {
+          alert('Reset failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Error resetting:', err);
+        alert('Error resetting. See console for details.');
+      } finally {
+        const btn = document.getElementById('resetBtn');
+        btn.disabled = false;
+        btn.textContent = '⚠ Reset All Data';
       }
     }
 

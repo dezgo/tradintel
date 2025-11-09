@@ -400,6 +400,66 @@ def create_app() -> Flask:
         _auto_rebalance_enabled = bool(enabled)
         return jsonify({"enabled": _auto_rebalance_enabled, "message": f"Auto-rebalance {'enabled' if _auto_rebalance_enabled else 'disabled'}"})
 
+    @app.post("/api/reset-for-testing")
+    def reset_for_testing():
+        """
+        DANGER: Reset all trading state for testing purposes.
+        Clears all trades, positions, and resets bots to initial state.
+        Only use this in testnet/paper trading!
+        """
+        from app.storage import store
+        from app.portfolio import EXECUTION_MODE
+
+        if EXECUTION_MODE not in ["paper", "binance_testnet"]:
+            return jsonify({"error": "Reset only allowed in paper/testnet mode"}), 403
+
+        try:
+            # Clear all trades
+            with store._lock:
+                store._conn.execute("DELETE FROM trades")
+                store._conn.execute("DELETE FROM equity_history")
+                store._conn.commit()
+
+            # Reset all bots to initial state
+            for manager in _pm.managers:
+                for bot in manager.bots:
+                    # Reset metrics to initial allocation
+                    bot.metrics.cash = bot.allocation
+                    bot.metrics.pos_qty = 0.0
+                    bot.metrics.avg_price = 0.0
+                    bot.metrics.equity = bot.allocation
+                    bot.metrics.cum_pnl = 0.0
+                    bot.metrics.trades = 0
+                    bot.metrics.score = 0.0
+
+                    # Update DB
+                    params = bot.strategy.to_params() if hasattr(bot.strategy, "to_params") else {}
+                    store.upsert_bot(
+                        name=bot.name,
+                        manager=manager.name,
+                        symbol=bot.symbol,
+                        tf=bot.tf,
+                        strategy=type(bot.strategy).__name__,
+                        params=params,
+                        allocation=bot.allocation,
+                        cash=bot.metrics.cash,
+                        pos_qty=bot.metrics.pos_qty,
+                        avg_price=bot.metrics.avg_price,
+                        equity=bot.metrics.equity,
+                        score=bot.metrics.score,
+                        trades=bot.metrics.trades,
+                    )
+
+            return jsonify({
+                "success": True,
+                "message": "All trading state has been reset",
+                "trades_cleared": True,
+                "bots_reset": sum(len(m.bots) for m in _pm.managers)
+            })
+
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
     @app.post("/api/auto-assign-strategies")
     def auto_assign_strategies():
         """Automatically assign workers to strategies based on performance."""

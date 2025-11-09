@@ -17,6 +17,54 @@ TF = "1m"
 # Execution mode: 'paper' or 'binance_testnet'
 EXECUTION_MODE = "binance_testnet"  # Change this to switch between paper and testnet
 
+# Capital allocation mode:
+# - 'fixed': Use CAPITAL_PER_BOT for each bot
+# - 'exchange_balance': Fetch and distribute exchange USDT balance evenly
+CAPITAL_MODE = "fixed"  # Change to 'exchange_balance' to use real testnet balances
+CAPITAL_PER_BOT = 1000.0  # Used when CAPITAL_MODE = 'fixed'
+
+
+def _get_capital_per_bot(total_bots: int) -> float:
+    """Get capital allocation per bot based on CAPITAL_MODE."""
+    if CAPITAL_MODE == "fixed":
+        return CAPITAL_PER_BOT
+
+    elif CAPITAL_MODE == "exchange_balance":
+        # Fetch USDT balance from exchange
+        try:
+            if EXECUTION_MODE == "binance_testnet":
+                client = BinanceTestnetExec("balance_fetcher")
+                response = client.exchange.privateGetAccount()
+                balances = response.get('balances', [])
+
+                # Find USDT balance
+                usdt_balance = 0.0
+                for bal in balances:
+                    if bal['asset'] == 'USDT':
+                        usdt_balance = float(bal.get('free', 0))
+                        break
+
+                if usdt_balance > 0:
+                    # Distribute evenly among all bots, leaving 10% as reserve
+                    usable = usdt_balance * 0.9
+                    per_bot = usable / total_bots
+                    print(f"Exchange balance mode: Found {usdt_balance:.2f} USDT, allocating {per_bot:.2f} per bot")
+                    return per_bot
+                else:
+                    print(f"Warning: No USDT balance found, falling back to {CAPITAL_PER_BOT}")
+                    return CAPITAL_PER_BOT
+
+            else:
+                # Paper mode, use fixed
+                return CAPITAL_PER_BOT
+
+        except Exception as e:
+            print(f"Error fetching exchange balance: {e}, falling back to {CAPITAL_PER_BOT}")
+            return CAPITAL_PER_BOT
+
+    else:
+        raise ValueError(f"Unknown CAPITAL_MODE: {CAPITAL_MODE}")
+
 
 def _get_execution_client(bot_name: str):
     """Get the appropriate execution client based on EXECUTION_MODE."""
@@ -66,6 +114,10 @@ def _apply_saved_state(bots: list) -> None:
 def build_portfolio(data_provider: DataProvider | None = None) -> PortfolioManager:
     data = data_provider or GateAdapter()
 
+    # Calculate total number of bots to determine capital allocation
+    total_bots = len(SYMBOLS) * (len(MR_GRID) + len(BO_GRID) + len(TF_GRID))
+    capital_per_bot = _get_capital_per_bot(total_bots)
+
     bots_mr: List[TradingBot] = []
     bots_bo: List[TradingBot] = []
     bots_tf: List[TradingBot] = []
@@ -73,15 +125,15 @@ def build_portfolio(data_provider: DataProvider | None = None) -> PortfolioManag
     for sym in SYMBOLS:
         for idx, p in enumerate(MR_GRID, start=1):
             name = f"mr_{sym.lower()}_{TF}_p{idx}"
-            bots_mr.append(TradingBot(name, sym, TF, MeanReversion(**p), data, _get_execution_client(name), 1000.0))
+            bots_mr.append(TradingBot(name, sym, TF, MeanReversion(**p), data, _get_execution_client(name), capital_per_bot))
     for sym in SYMBOLS:
         for idx, p in enumerate(BO_GRID, start=1):
             name = f"bo_{sym.lower()}_{TF}_p{idx}"
-            bots_bo.append(TradingBot(name, sym, TF, Breakout(**p), data, _get_execution_client(name), 1000.0))
+            bots_bo.append(TradingBot(name, sym, TF, Breakout(**p), data, _get_execution_client(name), capital_per_bot))
     for sym in SYMBOLS:
         for idx, p in enumerate(TF_GRID, start=1):
             name = f"tf_{sym.lower()}_{TF}_p{idx}"
-            bots_tf.append(TradingBot(name, sym, TF, TrendFollow(**p), data, _get_execution_client(name), 1000.0))
+            bots_tf.append(TradingBot(name, sym, TF, TrendFollow(**p), data, _get_execution_client(name), capital_per_bot))
 
     # hydrate from DB (allocations, cash/positions, scores)
     _apply_saved_state([*bots_mr, *bots_bo, *bots_tf])
