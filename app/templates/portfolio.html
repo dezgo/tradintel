@@ -46,9 +46,7 @@
   <div class="row g-2 g-md-3 mb-3">
     <div class="col-6 col-md-3">
       <div class="card text-center" style="padding: 1.5rem 1rem;">
-        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">
-          Total Equity <span class="badge badge-down" id="capitalMode" style="font-size: 0.6rem; margin-left: 0.25rem;">VIRTUAL</span>
-        </div>
+        <div class="muted small text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Total Equity</div>
         <div class="mono" style="font-size: 2rem; font-weight: 600; color: var(--text);" id="kpiEquity">$0</div>
       </div>
     </div>
@@ -247,18 +245,6 @@
       document.getElementById("kpiWorkers").textContent = `${activeWorkers}/${allWorkers.length}`;
       document.getElementById("kpiPositions").textContent = openPositions.length;
       document.getElementById("kpiTrades").textContent = totalTrades;
-
-      // Update capital mode badge
-      const capitalModeEl = document.getElementById("capitalMode");
-      if (snap.capital_mode === "exchange_balance") {
-        capitalModeEl.textContent = "REAL";
-        capitalModeEl.className = "badge badge-up";
-        capitalModeEl.title = "Using real exchange balance";
-      } else {
-        capitalModeEl.textContent = "VIRTUAL";
-        capitalModeEl.className = "badge badge-down";
-        capitalModeEl.title = "Using virtual capital (not real exchange funds)";
-      }
     }
 
     function renderStrategyBars(snap) {
