@@ -1091,11 +1091,21 @@ def create_app() -> Flask:
         from app.strategies import MeanReversion, Breakout, TrendFollow, MR_GRID, BO_GRID, TF_GRID
         from app.storage import store
 
+        # Check if portfolio has managers
+        if not _pm.managers:
+            return jsonify({"error": "No strategy managers available"}), 400
+
         # Calculate strategy performance
         strategy_scores = {}
         for m in _pm.managers:
-            avg_score = sum(b.metrics.score for b in m.bots) / max(1, len(m.bots))
+            if not m.bots:
+                continue
+            avg_score = sum(b.metrics.score for b in m.bots) / len(m.bots)
             strategy_scores[m.name] = avg_score
+
+        # Check if we have any strategies with bots
+        if not strategy_scores:
+            return jsonify({"error": "No active bots found"}), 400
 
         # Find best performing strategy
         best_strategy = max(strategy_scores, key=strategy_scores.get)
@@ -1107,8 +1117,13 @@ def create_app() -> Flask:
             "trend_follow": ("TrendFollow", TrendFollow, TF_GRID),
         }
 
+        # Handle evolved strategies portfolio (doesn't support auto-reassignment)
         if best_strategy not in manager_to_strategy:
-            return jsonify({"error": "Unknown best strategy"}), 500
+            return jsonify({
+                "error": "Auto-assignment is only supported for fallback strategies (mean_reversion, breakout, trend_follow). "
+                        "Current portfolio uses evolved strategies which are already optimized. "
+                        "Use the built-in rebalancing instead."
+            }), 400
 
         strategy_name, strategy_class, grid = manager_to_strategy[best_strategy]
 
