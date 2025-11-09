@@ -136,10 +136,10 @@ class TradingBot:
             })
             return
 
-        # Check if trading is paused globally
+        # Check if trading is paused globally (stored in database)
         try:
-            from app import _trading_paused
-            if _trading_paused:
+            from app import _get_trading_paused
+            if _get_trading_paused():
                 # Still update equity but skip trading
                 self.metrics.avg_price = price
                 self.metrics.equity = self.metrics.cash + self.metrics.pos_qty * price
@@ -152,7 +152,7 @@ class TradingBot:
                     })
                 return
         except ImportError:
-            pass  # If flag not available, continue trading
+            pass  # If function not available, continue trading
 
         if abs(delta) > 1e-9:
             side = "buy" if delta > 0 else "sell"
