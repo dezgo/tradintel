@@ -5,10 +5,11 @@ from __future__ import annotations
 import os
 import threading
 import time
-from flask import Flask, jsonify, render_template, redirect, url_for
+from flask import Flask, jsonify, render_template, redirect, url_for, request
+from flask_login import LoginManager, login_required, current_user
 from app.portfolio import build_portfolio
 from app.auto_params import AutoParamSelector
-from flask import request
+from app.auth import User
 
 _pm = None
 _runner_thread: threading.Thread | None = None
@@ -95,6 +96,19 @@ def _initialize_presets():
 
 def create_app() -> Flask:
     app = Flask(__name__)
+
+    # Configure Flask-Login
+    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', os.urandom(24).hex())
+
+    login_manager = LoginManager()
+    login_manager.init_app(app)
+    login_manager.login_view = 'login'
+    login_manager.login_message = 'Please log in to access this page.'
+
+    @login_manager.user_loader
+    def load_user(user_id):
+        """Load user for Flask-Login session management."""
+        return User.get_configured_user()
 
     global _pm, _runner_thread, _optimizer_thread, _evolver_thread
     _pm = build_portfolio()
@@ -227,7 +241,45 @@ def create_app() -> Flask:
         _runner_thread = threading.Thread(target=_loop, daemon=True)
         _runner_thread.start()
 
+    # ── Authentication routes ────────────────────────────────────────────────────
+    from flask_login import login_user, logout_user
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        """Login page and handler."""
+        if current_user.is_authenticated:
+            return redirect(url_for('ui'))
+
+        if request.method == "POST":
+            username = request.form.get("username")
+            password = request.form.get("password")
+            remember = request.form.get("remember") == "on"
+
+            user = User.verify_credentials(username, password)
+
+            if user:
+                login_user(user, remember=remember)
+                next_page = request.args.get('next')
+                # Prevent open redirect vulnerability
+                if next_page and next_page.startswith('/'):
+                    return redirect(next_page)
+                return redirect(url_for('ui'))
+            else:
+                return render_template("login.html", error="Invalid username or password")
+
+        return render_template("login.html")
+
+    @app.route("/logout")
+    @login_required
+    def logout():
+        """Logout handler."""
+        logout_user()
+        return redirect(url_for('login'))
+
+    # ── API routes ───────────────────────────────────────────────────────────────
+
     @app.get("/trades.json")
+    @login_required
     def trades():
         from app.storage import store
         params = {
@@ -241,6 +293,7 @@ def create_app() -> Flask:
         return jsonify({"items": items})
 
     @app.get("/roundtrips.json")
+    @login_required
     def roundtrips():
         from flask import request
         from app.storage import store
@@ -253,6 +306,7 @@ def create_app() -> Flask:
         return jsonify({"items": items})
 
     @app.get("/positions.json")
+    @login_required
     def positions():
         from flask import request
         from app.storage import store
@@ -264,6 +318,7 @@ def create_app() -> Flask:
         return jsonify({"items": items})
 
     @app.get("/portfolio.json")
+    @login_required
     def portfolio():
         from app.portfolio import EXECUTION_MODE
         snapshot = _pm.snapshot()
@@ -271,6 +326,7 @@ def create_app() -> Flask:
         return jsonify(snapshot)
 
     @app.get("/fees.json")
+    @login_required
     def fee_statistics():
         """Return fee statistics for the portfolio."""
         from app.storage import store
@@ -278,6 +334,7 @@ def create_app() -> Flask:
         return jsonify(stats)
 
     @app.get("/decisions.json")
+    @login_required
     def trading_decisions():
         """Return recent trading decisions for monitoring."""
         from app.bots import get_decision_log
@@ -286,6 +343,7 @@ def create_app() -> Flask:
         return jsonify({"items": list(reversed(decisions))})
 
     @app.get("/api/recent-trades")
+    @login_required
     def recent_trades():
         """Return recent executed trades from database (persists across restarts)."""
         from app.storage import store
@@ -307,6 +365,7 @@ def create_app() -> Flask:
         return jsonify({"items": items})
 
     @app.get("/exchange-balance.json")
+    @login_required
     def exchange_balance():
         """Return actual exchange account balance (testnet or live)."""
         from app.portfolio import EXECUTION_MODE
@@ -353,6 +412,7 @@ def create_app() -> Flask:
             })
 
     @app.get("/prices.json")
+    @login_required
     def prices():
         # get one shared data provider (from any bot)
         first_bot = next((b for m in _pm.managers for b in m.bots), None)
@@ -373,6 +433,7 @@ def create_app() -> Flask:
         return jsonify({"items": items})
 
     @app.post("/api/worker/strategy")
+    @login_required
     def change_worker_strategy():
         """Change a worker's strategy dynamically."""
         from flask import request
@@ -499,6 +560,7 @@ def create_app() -> Flask:
         return jsonify({"success": True, "worker": worker_name, "new_strategy": strategy_type_name})
 
     @app.get("/api/available-strategies")
+    @login_required
     def get_available_strategies():
         """Get all available strategies for worker dropdown (evolved + hardcoded)."""
         from app.storage import store
@@ -542,12 +604,14 @@ def create_app() -> Flask:
         return jsonify({"strategies": strategies})
 
     @app.get("/api/auto-rebalance")
+    @login_required
     def get_auto_rebalance():
         """Get the current auto-rebalance setting."""
         global _auto_rebalance_enabled
         return jsonify({"enabled": _auto_rebalance_enabled})
 
     @app.post("/api/auto-rebalance")
+    @login_required
     def set_auto_rebalance():
         """Enable or disable automatic strategy rebalancing."""
         global _auto_rebalance_enabled
@@ -557,6 +621,7 @@ def create_app() -> Flask:
         return jsonify({"enabled": _auto_rebalance_enabled, "message": f"Auto-rebalance {'enabled' if _auto_rebalance_enabled else 'disabled'}"})
 
     @app.post("/api/reset-for-testing")
+    @login_required
     def reset_for_testing():
         """
         DANGER: Reset all trading state for testing purposes.
@@ -593,8 +658,21 @@ def create_app() -> Flask:
             from app.bots import clear_decision_log
             clear_decision_log()
 
-            # Recalculate initial capital allocation (same as build_portfolio does)
-            total_bots = len(SYMBOLS) * (len(MR_GRID) + len(BO_GRID) + len(TF_GRID))
+            # Delete orphaned bot records (bots in DB but not in current portfolio)
+            current_bot_names = {bot.name for manager in _pm.managers for bot in manager.bots}
+            all_bot_records = store.load_bots()
+            orphaned_bots = [name for name in all_bot_records.keys() if name not in current_bot_names and name != "manual_trade"]
+
+            if orphaned_bots:
+                print(f"\n🧹 Cleaning up {len(orphaned_bots)} orphaned bot records from database...")
+                with store._lock:
+                    for bot_name in orphaned_bots:
+                        store._conn.execute("DELETE FROM bots WHERE name = ?", (bot_name,))
+                    store._conn.commit()
+                print(f"✓ Deleted orphaned bots: {', '.join(orphaned_bots[:5])}{' ...' if len(orphaned_bots) > 5 else ''}\n")
+
+            # Count ACTUAL bots currently running (not hardcoded grid logic)
+            total_bots = sum(len(manager.bots) for manager in _pm.managers)
             initial_capital = _get_capital_per_bot(total_bots)
 
             print(f"\n{'='*60}")
@@ -656,6 +734,7 @@ def create_app() -> Flask:
             return jsonify({"error": str(e)}), 500
 
     @app.post("/api/pause-trading")
+    @login_required
     def pause_trading():
         """Pause all trading. Bots will stop executing trades but keep positions."""
         global _trading_paused
@@ -668,6 +747,7 @@ def create_app() -> Flask:
         })
 
     @app.post("/api/resume-trading")
+    @login_required
     def resume_trading():
         """Resume trading after pause."""
         global _trading_paused
@@ -680,6 +760,7 @@ def create_app() -> Flask:
         })
 
     @app.get("/api/trading-status")
+    @login_required
     def trading_status():
         """Get current trading pause status, capital limit, timeframe, and portfolio config."""
         from app.storage import store
@@ -697,6 +778,7 @@ def create_app() -> Flask:
         })
 
     @app.post("/api/set-capital-limit")
+    @login_required
     def set_capital_limit():
         """Set the maximum USDT capital to use for trading."""
         from app.storage import store
@@ -718,6 +800,7 @@ def create_app() -> Flask:
         })
 
     @app.delete("/api/set-capital-limit")
+    @login_required
     def clear_capital_limit():
         """Clear capital limit (use full balance)."""
         from app.storage import store
@@ -732,6 +815,7 @@ def create_app() -> Flask:
         })
 
     @app.post("/api/set-timeframe")
+    @login_required
     def set_timeframe():
         """Set the trading timeframe. CRITICAL: Must match optimization/evolution timeframe!"""
         from app.storage import store
@@ -756,6 +840,7 @@ def create_app() -> Flask:
         })
 
     @app.post("/api/set-num-strategies")
+    @login_required
     def set_num_strategies():
         """Set number of active strategies to run in portfolio."""
         from app.storage import store
@@ -777,6 +862,7 @@ def create_app() -> Flask:
         })
 
     @app.post("/api/set-execution-mode")
+    @login_required
     def set_execution_mode():
         """Set the execution mode (paper, binance_testnet, or live)."""
         from app.storage import store
@@ -805,6 +891,7 @@ def create_app() -> Flask:
         })
 
     @app.post("/api/liquidate-all")
+    @login_required
     def liquidate_all():
         """
         EMERGENCY: Close all open positions immediately and pause trading.
@@ -897,6 +984,7 @@ def create_app() -> Flask:
             return jsonify({"error": str(e)}), 500
 
     @app.post("/api/manual-trade")
+    @login_required
     def manual_trade():
         """
         Execute a manual trade on the exchange.
@@ -982,6 +1070,7 @@ def create_app() -> Flask:
             return jsonify({"error": f"Trade execution failed: {str(e)}"}), 500
 
     @app.post("/api/auto-assign-strategies")
+    @login_required
     def auto_assign_strategies():
         """Automatically assign workers to strategies based on performance."""
         from app.strategies import MeanReversion, Breakout, TrendFollow, MR_GRID, BO_GRID, TF_GRID
@@ -1060,34 +1149,42 @@ def create_app() -> Flask:
         })
 
     @app.get("/health")
+    @login_required
     def health():
         return {"ok": True}
 
     @app.get("/")
+    @login_required
     def home():
         return redirect(url_for("ui"))
 
     @app.get("/ui")
+    @login_required
     def ui():
         return render_template("portfolio.html")
 
     @app.get("/backtest-ui")
+    @login_required
     def backtest_ui():
         return render_template("backtest.html")
 
     @app.get("/data-ui")
+    @login_required
     def data_ui():
         return render_template("data.html")
 
     @app.get("/optimizer-ui")
+    @login_required
     def optimizer_ui():
         return render_template("optimizer.html")
 
     @app.get("/evolution-ui")
+    @login_required
     def evolution_ui():
         return render_template("evolution.html")
 
     @app.get("/backtest/strategies")
+    @login_required
     def backtest_strategies():
         """List available strategies and their parameter grids."""
         from app.strategies import MR_GRID, BO_GRID, TF_GRID
@@ -1114,6 +1211,7 @@ def create_app() -> Flask:
         })
 
     @app.get("/backtest/saved")
+    @login_required
     def list_saved_backtests():
         """List all saved backtest configurations."""
         from app.storage import store
@@ -1121,6 +1219,7 @@ def create_app() -> Flask:
         return jsonify({"saved": saved})
 
     @app.post("/backtest/saved")
+    @login_required
     def save_backtest_config():
         """Save a backtest configuration."""
         from app.storage import store
@@ -1145,6 +1244,7 @@ def create_app() -> Flask:
             return jsonify({"error": str(e)}), 500
 
     @app.delete("/backtest/saved/<int:backtest_id>")
+    @login_required
     def delete_saved_backtest(backtest_id: int):
         """Delete a saved backtest configuration."""
         from app.storage import store
@@ -1156,6 +1256,7 @@ def create_app() -> Flask:
             return jsonify({"error": "Backtest not found"}), 404
 
     @app.post("/backtest")
+    @login_required
     def run_backtest():
         """
         Run a backtest on historical data.
@@ -1264,6 +1365,7 @@ def create_app() -> Flask:
             return jsonify({"error": f"Backtest failed: {str(e)}"}), 500
 
     @app.get("/data/coverage")
+    @login_required
     def data_coverage():
         """
         Get cache coverage for all symbols/timeframes.
@@ -1312,6 +1414,7 @@ def create_app() -> Flask:
         return jsonify({"items": items})
 
     @app.post("/data/backfill")
+    @login_required
     def backfill_data():
         """
         Backfill historical data from Gate.io or CoinGecko.
@@ -1359,6 +1462,7 @@ def create_app() -> Flask:
         return jsonify({"results": results})
 
     @app.get("/optimizer/results")
+    @login_required
     def list_optimizer_results():
         """List optimization results, optionally filtered by strategy/symbol."""
         from app.storage import store
@@ -1371,6 +1475,7 @@ def create_app() -> Flask:
         return jsonify({"results": results})
 
     @app.post("/optimizer/promote/<int:result_id>")
+    @login_required
     def promote_optimizer_result(result_id: int):
         """
         Promote an optimization result to a saved strategy.
@@ -1407,6 +1512,7 @@ def create_app() -> Flask:
             return jsonify({"error": str(e)}), 500
 
     @app.get("/evolution/results")
+    @login_required
     def list_evolution_results():
         """List evolved strategies, optionally filtered by symbol and minimum score."""
         from app.storage import store
@@ -1419,6 +1525,7 @@ def create_app() -> Flask:
         return jsonify({"results": results})
 
     @app.post("/evolution/promote/<int:strategy_id>")
+    @login_required
     def promote_evolved_strategy(strategy_id: int):
         """
         Promote an evolved strategy to a saved backtest configuration.
