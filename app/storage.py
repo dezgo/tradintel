@@ -468,6 +468,68 @@ class Storage:
             rows = cur.fetchall()
         return {name: int(cnt) for (name, cnt) in rows}
 
+    def calculate_realized_pnl(self, exclude_stablecoin_pairs: bool = True) -> float:
+        """
+        Calculate total realized P&L from closed round-trips.
+        Optionally excludes stablecoin-to-stablecoin conversions (USDC_USDT, etc.).
+        """
+        # Define stablecoin pairs to exclude
+        stablecoin_pairs = {'USDC_USDT', 'BUSD_USDT', 'USDT_USDC', 'USDT_BUSD'}
+
+        # Get all round-trips (no limit)
+        roundtrips = self.list_roundtrips(limit=100000)
+
+        total_pnl = 0.0
+        for rt in roundtrips:
+            symbol = rt.get('symbol', '')
+
+            # Skip stablecoin conversions if requested
+            if exclude_stablecoin_pairs and symbol in stablecoin_pairs:
+                continue
+
+            # Add the P&L from this round-trip
+            pnl = rt.get('pnl', 0.0)
+            total_pnl += pnl
+
+        return total_pnl
+
+    def calculate_todays_pnl(self) -> float:
+        """
+        Calculate total P&L from trades executed today (UTC midnight to now).
+        Uses round-trips closed today, excluding stablecoin conversions.
+        """
+        import datetime
+
+        # Calculate today's start timestamp (UTC midnight)
+        now = datetime.datetime.utcnow()
+        today_start = datetime.datetime(now.year, now.month, now.day, 0, 0, 0)
+        today_ts = int(today_start.timestamp())
+
+        # Define stablecoin pairs to exclude
+        stablecoin_pairs = {'USDC_USDT', 'BUSD_USDT', 'USDT_USDC', 'USDT_BUSD'}
+
+        # Get all round-trips
+        roundtrips = self.list_roundtrips(limit=100000)
+
+        todays_pnl = 0.0
+        for rt in roundtrips:
+            # Check if round-trip closed today (use exit_ts)
+            exit_ts = rt.get('exit_ts', 0)
+            if exit_ts < today_ts:
+                continue
+
+            symbol = rt.get('symbol', '')
+
+            # Skip stablecoin conversions
+            if symbol in stablecoin_pairs:
+                continue
+
+            # Add the P&L from this round-trip
+            pnl = rt.get('pnl', 0.0)
+            todays_pnl += pnl
+
+        return todays_pnl
+
     # ── Round-trips (buy→sell or sell→buy cycles) ─────────────────────────────
     def list_roundtrips(
             self,

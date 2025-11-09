@@ -98,18 +98,24 @@ class PortfolioManager:
         all_bots = [b for m in self.managers for b in m.bots]
         total_allocation = sum(b.allocation for b in all_bots)
         total_equity = sum(b.metrics.equity for b in all_bots)
-        total_cum_pnl = sum(b.metrics.cum_pnl for b in all_bots)  # Realized P&L
         total_pnl = total_equity - total_allocation
-        unrealized_pnl = total_pnl - total_cum_pnl
+
+        # Calculate realized P&L from database (excluding stablecoin conversions)
+        realized_pnl = store.calculate_realized_pnl(exclude_stablecoin_pairs=True)
+        unrealized_pnl = total_pnl - realized_pnl
+
+        # Calculate today's P&L (UTC based for now)
+        todays_pnl = store.calculate_todays_pnl()
 
         return {
             "portfolio_metrics": {
                 "starting_capital": total_allocation,
                 "current_value": total_equity,
                 "total_pnl": total_pnl,
-                "realized_pnl": total_cum_pnl,
+                "realized_pnl": realized_pnl,
                 "unrealized_pnl": unrealized_pnl,
                 "total_return_pct": (total_pnl / total_allocation * 100) if total_allocation > 0 else 0,
+                "todays_pnl": todays_pnl,
             },
             "strategies": [
                 {
