@@ -104,7 +104,7 @@ class PortfolioManager:
         realized_pnl = store.calculate_realized_pnl(exclude_stablecoin_pairs=True)
         unrealized_pnl = total_pnl - realized_pnl
 
-        # Calculate today's P&L (UTC based for now)
+        # Calculate today's P&L (Sydney timezone - midnight to now)
         todays_pnl = store.calculate_todays_pnl()
 
         return {

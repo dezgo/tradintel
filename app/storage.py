@@ -495,14 +495,16 @@ class Storage:
 
     def calculate_todays_pnl(self) -> float:
         """
-        Calculate total P&L from trades executed today (UTC midnight to now).
+        Calculate total P&L from trades executed today (Sydney timezone midnight to now).
         Uses round-trips closed today, excluding stablecoin conversions.
         """
         import datetime
+        from zoneinfo import ZoneInfo
 
-        # Calculate today's start timestamp (UTC midnight)
-        now = datetime.datetime.utcnow()
-        today_start = datetime.datetime(now.year, now.month, now.day, 0, 0, 0)
+        # Calculate today's start timestamp (Sydney timezone midnight)
+        sydney_tz = ZoneInfo("Australia/Sydney")
+        now = datetime.datetime.now(sydney_tz)
+        today_start = datetime.datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=sydney_tz)
         today_ts = int(today_start.timestamp())
 
         # Define stablecoin pairs to exclude
