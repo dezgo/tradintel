@@ -176,6 +176,8 @@ def create_app() -> Flask:
             SEC = 60 if TF == "1m" else 300 if TF == "5m" else 60  # fallback
             rebalance_counter = 0
             REBALANCE_INTERVAL = 60  # Auto-rebalance every 60 steps (bars)
+            alert_check_counter = 0
+            ALERT_CHECK_INTERVAL = 1  # Check alerts every 1 bar (every minute for 1m, every 5m for 5m)
 
             while True:
                 try:
@@ -249,6 +251,20 @@ def create_app() -> Flask:
                                 print(f"Auto-rebalance: moved {num_to_reassign} workers to {best_strategy}")
                         except Exception as exc:
                             print("Auto-rebalance error:", exc)
+
+                    # Check price alerts
+                    alert_check_counter += 1
+                    if alert_check_counter >= ALERT_CHECK_INTERVAL:
+                        alert_check_counter = 0
+                        try:
+                            from app.alert_monitor import check_price_alerts
+                            from app.data import GateAdapter
+                            gate = GateAdapter()
+                            results = check_price_alerts(gate)
+                            if results["triggered"] > 0:
+                                print(f"Price alerts: {results['triggered']} triggered, {results['checked']} checked")
+                        except Exception as exc:
+                            print("Price alert check error:", exc)
 
                     # sleep until a few seconds after the next bar boundary
                     now = time.time()
@@ -1177,6 +1193,207 @@ def create_app() -> Flask:
             "workers_reassigned": workers_reassigned,
             "count": len(workers_reassigned)
         })
+
+    # ── Price Alerts ───────────────────────────────────────────────────────────
+    @app.get("/api/price-alerts")
+    @login_required
+    def get_price_alerts():
+        """List all price alerts, optionally filtered by status."""
+        from app.storage import store
+
+        status = request.args.get("status")
+        email = request.args.get("email")
+
+        try:
+            alerts = store.list_price_alerts(status=status, email=email)
+            return jsonify({
+                "success": True,
+                "alerts": alerts,
+                "count": len(alerts)
+            })
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": str(e)
+            }), 500
+
+    @app.post("/api/price-alerts")
+    @login_required
+    def create_price_alert():
+        """Create a new price alert."""
+        from app.storage import store
+
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "No data provided"
+            }), 400
+
+        symbol = data.get("symbol")
+        target_price = data.get("target_price")
+        condition = data.get("condition")
+        email = data.get("email")
+
+        # Validation
+        if not all([symbol, target_price, condition, email]):
+            return jsonify({
+                "success": False,
+                "error": "Missing required fields: symbol, target_price, condition, email"
+            }), 400
+
+        if condition not in ["above", "below"]:
+            return jsonify({
+                "success": False,
+                "error": "Invalid condition. Must be 'above' or 'below'"
+            }), 400
+
+        try:
+            target_price = float(target_price)
+            if target_price <= 0:
+                return jsonify({
+                    "success": False,
+                    "error": "Target price must be positive"
+                }), 400
+        except (ValueError, TypeError):
+            return jsonify({
+                "success": False,
+                "error": "Invalid target price"
+            }), 400
+
+        # Basic email validation
+        if "@" not in email or "." not in email:
+            return jsonify({
+                "success": False,
+                "error": "Invalid email address"
+            }), 400
+
+        try:
+            alert_id = store.create_price_alert(
+                symbol=symbol,
+                target_price=target_price,
+                condition=condition,
+                email=email
+            )
+
+            return jsonify({
+                "success": True,
+                "alert_id": alert_id,
+                "message": f"Price alert created: {symbol} {condition} {target_price}"
+            })
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": str(e)
+            }), 500
+
+    @app.delete("/api/price-alerts/<int:alert_id>")
+    @login_required
+    def delete_price_alert(alert_id: int):
+        """Delete a price alert."""
+        from app.storage import store
+
+        try:
+            deleted = store.delete_price_alert(alert_id)
+            if deleted:
+                return jsonify({
+                    "success": True,
+                    "message": f"Alert {alert_id} deleted"
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": f"Alert {alert_id} not found"
+                }), 404
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": str(e)
+            }), 500
+
+    @app.post("/api/price-alerts/<int:alert_id>/cancel")
+    @login_required
+    def cancel_price_alert(alert_id: int):
+        """Cancel a price alert (set status to 'cancelled')."""
+        from app.storage import store
+
+        try:
+            updated = store.update_alert_status(alert_id, "cancelled")
+            if updated:
+                return jsonify({
+                    "success": True,
+                    "message": f"Alert {alert_id} cancelled"
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": f"Alert {alert_id} not found"
+                }), 404
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": str(e)
+            }), 500
+
+    @app.post("/api/price-alerts/check")
+    @login_required
+    def check_price_alerts_manually():
+        """Manually trigger price alert check (for testing)."""
+        from app.alert_monitor import check_price_alerts
+        from app.data import GateAdapter
+
+        try:
+            gate = GateAdapter()
+            results = check_price_alerts(gate)
+            return jsonify({
+                "success": True,
+                "results": results
+            })
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": str(e)
+            }), 500
+
+    @app.post("/api/price-alerts/test-email")
+    @login_required
+    def send_test_email():
+        """Send a test email to verify SMTP configuration."""
+        from app.notifications import email_notifier
+
+        data = request.get_json()
+        if not data or "email" not in data:
+            return jsonify({
+                "success": False,
+                "error": "Email address required"
+            }), 400
+
+        email = data["email"]
+
+        # Basic email validation
+        if "@" not in email or "." not in email:
+            return jsonify({
+                "success": False,
+                "error": "Invalid email address"
+            }), 400
+
+        try:
+            sent = email_notifier.send_test_email(email)
+            if sent:
+                return jsonify({
+                    "success": True,
+                    "message": f"Test email sent to {email}"
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": "Failed to send test email. Check SMTP configuration."
+                }), 500
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": str(e)
+            }), 500
 
     @app.get("/health")
     @login_required

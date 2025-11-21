@@ -229,6 +229,30 @@ class Storage:
             )
             self._conn.commit()
 
+        # Migrate to version 9: add price_alerts table for price alert feature
+        if ver < 9:
+            cur.executescript(
+                """
+                BEGIN;
+                CREATE TABLE IF NOT EXISTS price_alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT NOT NULL,
+                    target_price REAL NOT NULL,
+                    condition TEXT NOT NULL,  -- 'above' or 'below'
+                    email TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',  -- 'active', 'triggered', 'cancelled'
+                    created_ts INTEGER NOT NULL,
+                    triggered_ts INTEGER,
+                    last_checked_price REAL
+                );
+                CREATE INDEX IF NOT EXISTS idx_alerts_status ON price_alerts(status);
+                CREATE INDEX IF NOT EXISTS idx_alerts_symbol ON price_alerts(symbol);
+                PRAGMA user_version = 9;
+                COMMIT;
+                """
+            )
+            self._conn.commit()
+
     # ── Trades ────────────────────────────────────────────────────────────────
     def record_trade(
         self,
@@ -1197,6 +1221,117 @@ class Storage:
                 (key, value_json)
             )
             self._conn.commit()
+
+    # ── Price Alerts ───────────────────────────────────────────────────────────
+    def create_price_alert(
+        self, symbol: str, target_price: float, condition: str, email: str
+    ) -> int:
+        """Create a new price alert. Returns the alert ID."""
+        if condition not in ("above", "below"):
+            raise ValueError(f"Invalid condition: {condition}. Must be 'above' or 'below'")
+
+        now = int(time.time())
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                INSERT INTO price_alerts(symbol, target_price, condition, email, status, created_ts)
+                VALUES(?,?,?,?,?,?)
+                """,
+                (symbol, float(target_price), condition, email, "active", now),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def list_price_alerts(self, status: str | None = None, email: str | None = None) -> list[dict]:
+        """List price alerts, optionally filtered by status and/or email."""
+        sql = [
+            """
+            SELECT id, symbol, target_price, condition, email, status, created_ts, triggered_ts, last_checked_price
+            FROM price_alerts
+            WHERE 1=1
+            """
+        ]
+        args = []
+
+        if status:
+            sql.append("AND status = ?")
+            args.append(status)
+
+        if email:
+            sql.append("AND email = ?")
+            args.append(email)
+
+        sql.append("ORDER BY created_ts DESC")
+
+        with self._lock:
+            cur = self._conn.execute(" ".join(sql), args)
+            rows = cur.fetchall()
+
+        return [
+            {
+                "id": int(r[0]),
+                "symbol": r[1],
+                "target_price": float(r[2]),
+                "condition": r[3],
+                "email": r[4],
+                "status": r[5],
+                "created_ts": int(r[6]),
+                "triggered_ts": int(r[7]) if r[7] else None,
+                "last_checked_price": float(r[8]) if r[8] else None,
+            }
+            for r in rows
+        ]
+
+    def get_active_price_alerts(self) -> list[dict]:
+        """Get all active price alerts."""
+        return self.list_price_alerts(status="active")
+
+    def update_alert_status(
+        self,
+        alert_id: int,
+        status: str,
+        triggered_ts: int | None = None,
+        last_checked_price: float | None = None,
+    ) -> bool:
+        """Update alert status and optionally set triggered timestamp. Returns True if updated."""
+        if status not in ("active", "triggered", "cancelled"):
+            raise ValueError(f"Invalid status: {status}")
+
+        with self._lock:
+            if triggered_ts is not None:
+                cur = self._conn.execute(
+                    "UPDATE price_alerts SET status = ?, triggered_ts = ?, last_checked_price = ? WHERE id = ?",
+                    (status, int(triggered_ts), float(last_checked_price) if last_checked_price else None, int(alert_id)),
+                )
+            elif last_checked_price is not None:
+                cur = self._conn.execute(
+                    "UPDATE price_alerts SET status = ?, last_checked_price = ? WHERE id = ?",
+                    (status, float(last_checked_price), int(alert_id)),
+                )
+            else:
+                cur = self._conn.execute(
+                    "UPDATE price_alerts SET status = ? WHERE id = ?",
+                    (status, int(alert_id)),
+                )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def update_alert_last_checked_price(self, alert_id: int, price: float) -> bool:
+        """Update the last checked price for an alert. Returns True if updated."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE price_alerts SET last_checked_price = ? WHERE id = ?",
+                (float(price), int(alert_id)),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def delete_price_alert(self, alert_id: int) -> bool:
+        """Delete a price alert. Returns True if deleted."""
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM price_alerts WHERE id = ?", (int(alert_id),))
+            self._conn.commit()
+            return cur.rowcount > 0
 
 
 store = Storage(_DB_DEFAULT)  # simple singleton

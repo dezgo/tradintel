@@ -274,6 +274,58 @@
     </div>
   </div>
 
+  <!-- Price Alerts -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h6 mb-0">Price Alerts <span class="badge badge-active" id="alertsCount" style="font-size: 0.7rem; margin-left: 0.5rem;">0</span></h2>
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadPriceAlerts()">↻ Refresh</button>
+      </div>
+
+      <!-- Create Alert Form -->
+      <div class="border rounded p-3 mb-3" style="background: var(--page-bg);">
+        <h3 class="small fw-bold mb-3">Create New Alert</h3>
+        <div class="row g-2">
+          <div class="col-md-3">
+            <label class="form-label small">Symbol</label>
+            <select class="form-select form-select-sm" id="alertSymbol">
+              <option value="BTC_USDT">BTC/USDT</option>
+              <option value="ETH_USDT">ETH/USDT</option>
+              <option value="SOL_USDT">SOL/USDT</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small">Condition</label>
+            <select class="form-select form-select-sm" id="alertCondition">
+              <option value="above">Above</option>
+              <option value="below">Below</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small">Target Price</label>
+            <input type="number" class="form-control form-control-sm" id="alertTargetPrice" placeholder="50000.00" step="0.01" min="0" />
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small">Email</label>
+            <input type="email" class="form-control form-control-sm" id="alertEmail" placeholder="you@example.com" />
+          </div>
+          <div class="col-12">
+            <button class="btn btn-primary btn-sm" onclick="createPriceAlert()">Create Alert</button>
+            <button class="btn btn-outline-secondary btn-sm ms-2" onclick="testEmailConfig()">Test Email</button>
+          </div>
+          <div class="col-12">
+            <div id="alertStatus"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Alerts List -->
+      <div id="alertsList">
+        <div class="muted small">Loading alerts...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Recent Trades -->
   <div class="card mb-3">
     <div class="card-body">
@@ -1593,6 +1645,209 @@
       }
     }
 
+    // ───────────────────────────────────────────────────────────────────────────
+    // Price Alerts
+    // ───────────────────────────────────────────────────────────────────────────
+
+    async function loadPriceAlerts() {
+      try {
+        const res = await fetch('/api/price-alerts');
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          document.getElementById('alertsList').innerHTML = '<div class="alert alert-danger small mb-0">Failed to load alerts</div>';
+          return;
+        }
+
+        const alerts = data.alerts || [];
+        document.getElementById('alertsCount').textContent = alerts.filter(a => a.status === 'active').length;
+
+        if (alerts.length === 0) {
+          document.getElementById('alertsList').innerHTML = '<div class="muted small text-center py-3">No price alerts yet. Create one above!</div>';
+          return;
+        }
+
+        // Group by status
+        const activeAlerts = alerts.filter(a => a.status === 'active');
+        const triggeredAlerts = alerts.filter(a => a.status === 'triggered');
+        const cancelledAlerts = alerts.filter(a => a.status === 'cancelled');
+
+        let html = '';
+
+        // Active alerts
+        if (activeAlerts.length > 0) {
+          html += '<div class="mb-3"><h4 class="small fw-bold text-success mb-2">Active Alerts</h4>';
+          html += '<div class="table-responsive"><table class="table table-sm table-hover mono small">';
+          html += '<thead><tr><th>Symbol</th><th>Condition</th><th>Target</th><th>Current</th><th>Email</th><th>Created</th><th>Actions</th></tr></thead><tbody>';
+
+          activeAlerts.forEach(alert => {
+            const createdDate = new Date(alert.created_ts * 1000).toLocaleString();
+            const currentPrice = alert.last_checked_price ? alert.last_checked_price.toFixed(2) : '-';
+            html += `
+              <tr>
+                <td><span class="badge badge-active">${alert.symbol}</span></td>
+                <td>${alert.condition === 'above' ? '📈 Above' : '📉 Below'}</td>
+                <td>$${alert.target_price.toFixed(2)}</td>
+                <td>${currentPrice !== '-' ? '$' + currentPrice : '-'}</td>
+                <td class="text-muted">${alert.email}</td>
+                <td class="text-muted">${createdDate}</td>
+                <td>
+                  <button class="btn btn-sm btn-outline-danger" onclick="deletePriceAlert(${alert.id})" title="Delete">🗑️</button>
+                </td>
+              </tr>
+            `;
+          });
+          html += '</tbody></table></div></div>';
+        }
+
+        // Triggered alerts (recent 5)
+        if (triggeredAlerts.length > 0) {
+          html += '<div class="mb-3"><h4 class="small fw-bold text-warning mb-2">Recently Triggered</h4>';
+          html += '<div class="table-responsive"><table class="table table-sm table-hover mono small">';
+          html += '<thead><tr><th>Symbol</th><th>Condition</th><th>Target</th><th>Triggered At</th><th>Email</th><th>Actions</th></tr></thead><tbody>';
+
+          triggeredAlerts.slice(0, 5).forEach(alert => {
+            const triggeredDate = new Date(alert.triggered_ts * 1000).toLocaleString();
+            html += `
+              <tr class="opacity-75">
+                <td><span class="badge" style="background: #856404;">${alert.symbol}</span></td>
+                <td>${alert.condition === 'above' ? '📈 Above' : '📉 Below'}</td>
+                <td>$${alert.target_price.toFixed(2)}</td>
+                <td class="text-muted">${triggeredDate}</td>
+                <td class="text-muted">${alert.email}</td>
+                <td>
+                  <button class="btn btn-sm btn-outline-danger" onclick="deletePriceAlert(${alert.id})" title="Delete">🗑️</button>
+                </td>
+              </tr>
+            `;
+          });
+          html += '</tbody></table></div></div>';
+        }
+
+        document.getElementById('alertsList').innerHTML = html;
+
+      } catch (e) {
+        console.error('Failed to load price alerts:', e);
+        document.getElementById('alertsList').innerHTML = '<div class="alert alert-danger small mb-0">Error loading alerts</div>';
+      }
+    }
+
+    async function createPriceAlert() {
+      const symbol = document.getElementById('alertSymbol').value;
+      const condition = document.getElementById('alertCondition').value;
+      const targetPrice = parseFloat(document.getElementById('alertTargetPrice').value);
+      const email = document.getElementById('alertEmail').value;
+
+      const statusDiv = document.getElementById('alertStatus');
+
+      // Validation
+      if (!targetPrice || targetPrice <= 0) {
+        statusDiv.innerHTML = '<div class="alert alert-danger small mb-0 mt-2">Please enter a valid target price</div>';
+        return;
+      }
+
+      if (!email || !email.includes('@')) {
+        statusDiv.innerHTML = '<div class="alert alert-danger small mb-0 mt-2">Please enter a valid email address</div>';
+        return;
+      }
+
+      statusDiv.innerHTML = '<div class="alert alert-info small mb-0 mt-2">Creating alert...</div>';
+
+      try {
+        const res = await fetch('/api/price-alerts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            symbol,
+            condition,
+            target_price: targetPrice,
+            email
+          })
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          statusDiv.innerHTML = '<div class="alert alert-success small mb-0 mt-2">Alert created successfully!</div>';
+
+          // Clear form
+          document.getElementById('alertTargetPrice').value = '';
+          document.getElementById('alertEmail').value = '';
+
+          // Reload alerts
+          setTimeout(() => {
+            loadPriceAlerts();
+            statusDiv.innerHTML = '';
+          }, 2000);
+
+        } else {
+          statusDiv.innerHTML = `<div class="alert alert-danger small mb-0 mt-2">Error: ${data.error || 'Unknown error'}</div>`;
+        }
+
+      } catch (e) {
+        statusDiv.innerHTML = `<div class="alert alert-danger small mb-0 mt-2">Failed to create alert: ${e.message}</div>`;
+      }
+    }
+
+    async function deletePriceAlert(alertId) {
+      if (!confirm('Are you sure you want to delete this alert?')) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/price-alerts/${alertId}`, {
+          method: 'DELETE'
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          // Reload alerts
+          loadPriceAlerts();
+        } else {
+          alert(`Failed to delete alert: ${data.error || 'Unknown error'}`);
+        }
+
+      } catch (e) {
+        alert(`Failed to delete alert: ${e.message}`);
+      }
+    }
+
+    async function testEmailConfig() {
+      const email = document.getElementById('alertEmail').value;
+      const statusDiv = document.getElementById('alertStatus');
+
+      if (!email || !email.includes('@')) {
+        statusDiv.innerHTML = '<div class="alert alert-danger small mb-0 mt-2">Please enter a valid email address first</div>';
+        return;
+      }
+
+      statusDiv.innerHTML = '<div class="alert alert-info small mb-0 mt-2">Sending test email...</div>';
+
+      try {
+        const res = await fetch('/api/price-alerts/test-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          statusDiv.innerHTML = '<div class="alert alert-success small mb-0 mt-2">Test email sent! Check your inbox.</div>';
+        } else {
+          statusDiv.innerHTML = `<div class="alert alert-danger small mb-0 mt-2">Failed to send test email: ${data.error || 'Unknown error'}</div>`;
+        }
+
+        setTimeout(() => {
+          statusDiv.innerHTML = '';
+        }, 5000);
+
+      } catch (e) {
+        statusDiv.innerHTML = `<div class="alert alert-danger small mb-0 mt-2">Error: ${e.message}</div>`;
+      }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
 
     // Load strategies first (needed by renderWorkers)
@@ -1608,7 +1863,8 @@
         loadExchangeBalance(),
         loadDecisions(),
         updateManualTradingInfo(),  // Initialize manual trading info
-        loadTradingStatus()  // Initialize trading controls
+        loadTradingStatus(),  // Initialize trading controls
+        loadPriceAlerts()  // Initialize price alerts
       ]);
     }).then(() => {
       if (autoChk.checked) startLoop();
