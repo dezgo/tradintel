@@ -1721,10 +1721,10 @@
             });
 
             html += `<div class="mb-2">`;
-            html += `<div class="d-flex align-items-center mb-1">`;
-            html += `<span class="badge badge-active me-2">${symbol}</span>`;
+            html += `<div class="d-flex align-items-center gap-2 mb-1">`;
+            html += `<span class="badge badge-active">${symbol}</span>`;
             if (currentPrice) {
-              html += `<span class="text-muted small">Current: $${currentPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>`;
+              html += `<span class="mono" style="color: var(--text); font-size: 0.95rem;">$${currentPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>`;
             }
             html += `</div>`;
             html += '<div class="table-responsive"><table class="table table-sm table-hover mono small mb-0">';
