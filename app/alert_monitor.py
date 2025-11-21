@@ -104,7 +104,7 @@ class PriceAlertMonitor:
                             f"(current: {current_price})"
                         )
 
-                        # Send email notification
+                        # Send email notification (best effort)
                         email_sent = email_notifier.send_price_alert(
                             to_email=email,
                             symbol=symbol,
@@ -113,18 +113,23 @@ class PriceAlertMonitor:
                             condition=condition,
                         )
 
+                        # Mark alert as triggered regardless of email success
+                        # (email might fail if SMTP not configured, but alert should still trigger)
+                        store.update_alert_status(
+                            alert_id,
+                            "triggered",
+                            triggered_ts=now,
+                            last_checked_price=current_price,
+                        )
+                        results["triggered"] += 1
+
                         if email_sent:
-                            # Mark alert as triggered
-                            store.update_alert_status(
-                                alert_id,
-                                "triggered",
-                                triggered_ts=now,
-                                last_checked_price=current_price,
-                            )
-                            results["triggered"] += 1
-                            logger.info(f"Alert {alert_id} marked as triggered and email sent")
+                            logger.info(f"Alert {alert_id} triggered and email sent to {email}")
                         else:
-                            logger.error(f"Failed to send email for alert {alert_id}")
+                            logger.warning(
+                                f"Alert {alert_id} triggered but email failed to send to {email}. "
+                                "Check SMTP configuration."
+                            )
                             results["errors"] += 1
 
             except Exception as e:

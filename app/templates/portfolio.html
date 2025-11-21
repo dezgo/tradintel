@@ -1733,19 +1733,19 @@
             symbolAlerts.forEach(alert => {
               const createdDate = new Date(alert.created_ts * 1000).toLocaleString();
 
+              // Direction icon based on stored condition (not recalculated from current price)
+              const directionIcon = alert.condition === 'above' ? '↗' : '↘';
+              const conditionTooltip = alert.condition === 'above' ? 'Alert when price goes above target' : 'Alert when price goes below target';
+
               // Calculate distance from current price
               let distance = '-';
               let distanceClass = '';
-              let directionIcon = '';
               if (currentPrice) {
                 const diff = alert.target_price - currentPrice;
                 const pct = (diff / currentPrice) * 100;
                 distance = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
                 distanceClass = pct >= 0 ? 'text-success' : 'text-danger';
-                directionIcon = pct >= 0 ? '↗' : '↘';
               }
-
-              const conditionTooltip = alert.condition === 'above' ? 'Alert when price goes above target' : 'Alert when price goes below target';
 
               html += `
                 <tr>
