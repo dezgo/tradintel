@@ -1708,12 +1708,17 @@
           const symbols = Object.keys(alertsBySymbol).sort();
 
           symbols.forEach(symbol => {
-            // Sort alerts within this symbol by target_price
-            const symbolAlerts = alertsBySymbol[symbol].sort((a, b) => a.target_price - b.target_price);
-
             // Get current price for this symbol
             const priceData = currentPrices[symbol];
             const currentPrice = priceData ? priceData.price : null;
+
+            // Sort alerts by distance from current price (closest first)
+            const symbolAlerts = alertsBySymbol[symbol].sort((a, b) => {
+              if (!currentPrice) return 0;
+              const distA = Math.abs(a.target_price - currentPrice) / currentPrice;
+              const distB = Math.abs(b.target_price - currentPrice) / currentPrice;
+              return distA - distB;
+            });
 
             html += `<div class="mb-2">`;
             html += `<div class="d-flex align-items-center mb-1">`;
