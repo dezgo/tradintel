@@ -1479,9 +1479,12 @@
     function refreshAll() {
       load();
       loadPrices().then(() => {
-        // Update alert condition after prices load
+        // Update alert condition and alerts list after prices load
         if (typeof updateAlertCondition === 'function') {
           updateAlertCondition();
+        }
+        if (typeof loadPriceAlerts === 'function') {
+          loadPriceAlerts();
         }
       });
       loadPositions();
@@ -1988,9 +1991,11 @@
         loadExchangeBalance(),
         loadDecisions(),
         updateManualTradingInfo(),  // Initialize manual trading info
-        loadTradingStatus(),  // Initialize trading controls
-        loadPriceAlerts()  // Initialize price alerts
+        loadTradingStatus()  // Initialize trading controls
       ]);
+    }).then(() => {
+      // Load price alerts AFTER prices are loaded (needs currentPrices)
+      return loadPriceAlerts();
     }).then(() => {
       if (autoChk.checked) startLoop();
     });
