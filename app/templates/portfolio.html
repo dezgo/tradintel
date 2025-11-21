@@ -284,30 +284,26 @@
 
       <!-- Create Alert Form -->
       <div class="border rounded p-3 mb-3" style="background: var(--page-bg);">
-        <h3 class="small fw-bold mb-3">Create New Alert</h3>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h3 class="small fw-bold mb-0">Create New Alert</h3>
+          <span class="text-muted small" title="Alert triggers when price reaches your target">ℹ️ Alerts trigger when price reaches target</span>
+        </div>
         <div class="row g-2">
           <div class="col-md-3">
             <label class="form-label small">Symbol</label>
-            <select class="form-select form-select-sm" id="alertSymbol" onchange="updateAlertCondition()">
+            <select class="form-select form-select-sm" id="alertSymbol" onchange="updateAlertPriceHint()">
               <option value="BTC_USDT">BTC/USDT</option>
               <option value="ETH_USDT">ETH/USDT</option>
               <option value="SOL_USDT">SOL/USDT</option>
             </select>
             <div class="form-text" id="alertCurrentPrice">Current: -</div>
           </div>
-          <div class="col-md-2">
-            <label class="form-label small">Condition</label>
-            <select class="form-select form-select-sm" id="alertCondition">
-              <option value="above">Above</option>
-              <option value="below">Below</option>
-            </select>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label small">Target Price</label>
-            <input type="number" class="form-control form-control-sm" id="alertTargetPrice" placeholder="50000.00" step="0.01" min="0" oninput="updateAlertCondition()" />
-            <div class="form-text" id="alertConditionHint"></div>
-          </div>
           <div class="col-md-4">
+            <label class="form-label small">Target Price</label>
+            <input type="number" class="form-control form-control-sm" id="alertTargetPrice" placeholder="50000.00" step="0.01" min="0" oninput="updateAlertPriceHint()" />
+            <div class="form-text" id="alertPriceHint"></div>
+          </div>
+          <div class="col-md-5">
             <label class="form-label small">Email</label>
             <input type="email" class="form-control form-control-sm" id="alertEmail" placeholder="you@example.com" />
           </div>
@@ -1479,9 +1475,9 @@
     function refreshAll() {
       load();
       loadPrices().then(() => {
-        // Update alert condition and alerts list after prices load
-        if (typeof updateAlertCondition === 'function') {
-          updateAlertCondition();
+        // Update alert price hint and alerts list after prices load
+        if (typeof updateAlertPriceHint === 'function') {
+          updateAlertPriceHint();
         }
         if (typeof loadPriceAlerts === 'function') {
           loadPriceAlerts();
@@ -1727,7 +1723,7 @@
             }
             html += `</div>`;
             html += '<div class="table-responsive"><table class="table table-sm table-hover mono small mb-0">';
-            html += '<thead><tr><th>Condition</th><th>Target</th><th>Distance</th><th>Email</th><th>Created</th><th>Actions</th></tr></thead><tbody>';
+            html += '<thead><tr><th>Target Price</th><th>Distance</th><th>Email</th><th>Created</th><th>Actions</th></tr></thead><tbody>';
 
             symbolAlerts.forEach(alert => {
               const createdDate = new Date(alert.created_ts * 1000).toLocaleString();
@@ -1735,17 +1731,23 @@
               // Calculate distance from current price
               let distance = '-';
               let distanceClass = '';
+              let directionIcon = '';
               if (currentPrice) {
                 const diff = alert.target_price - currentPrice;
                 const pct = (diff / currentPrice) * 100;
                 distance = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
                 distanceClass = pct >= 0 ? 'text-success' : 'text-danger';
+                directionIcon = pct >= 0 ? '↗' : '↘';
               }
+
+              const conditionTooltip = alert.condition === 'above' ? 'Alert when price goes above target' : 'Alert when price goes below target';
 
               html += `
                 <tr>
-                  <td>${alert.condition === 'above' ? '📈 Above' : '📉 Below'}</td>
-                  <td>$${alert.target_price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                  <td>
+                    <span title="${conditionTooltip}">${directionIcon}</span>
+                    $${alert.target_price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                  </td>
                   <td class="${distanceClass}">${distance}</td>
                   <td class="text-muted small">${alert.email}</td>
                   <td class="text-muted small">${createdDate}</td>
@@ -1763,15 +1765,20 @@
         if (triggeredAlerts.length > 0) {
           html += '<div class="mb-3"><h4 class="small fw-bold text-warning mb-2">Recently Triggered</h4>';
           html += '<div class="table-responsive"><table class="table table-sm table-hover mono small">';
-          html += '<thead><tr><th>Symbol</th><th>Condition</th><th>Target</th><th>Triggered At</th><th>Email</th><th>Actions</th></tr></thead><tbody>';
+          html += '<thead><tr><th>Symbol</th><th>Target Price</th><th>Triggered At</th><th>Email</th><th>Actions</th></tr></thead><tbody>';
 
           triggeredAlerts.slice(0, 5).forEach(alert => {
             const triggeredDate = new Date(alert.triggered_ts * 1000).toLocaleString();
+            const directionIcon = alert.condition === 'above' ? '↗' : '↘';
+            const conditionTooltip = alert.condition === 'above' ? 'Alert when price goes above target' : 'Alert when price goes below target';
+
             html += `
               <tr class="opacity-75">
                 <td><span class="badge" style="background: #856404;">${alert.symbol}</span></td>
-                <td>${alert.condition === 'above' ? '📈 Above' : '📉 Below'}</td>
-                <td>$${alert.target_price.toFixed(2)}</td>
+                <td>
+                  <span title="${conditionTooltip}">${directionIcon}</span>
+                  $${alert.target_price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                </td>
                 <td class="text-muted">${triggeredDate}</td>
                 <td class="text-muted">${alert.email}</td>
                 <td>
@@ -1790,15 +1797,14 @@
         document.getElementById('alertsList').innerHTML = '<div class="alert alert-danger small mb-0">Error loading alerts</div>';
       }
 
-      // Update condition dropdown based on current prices
-      updateAlertCondition();
+      // Update price hint based on current prices
+      updateAlertPriceHint();
     }
 
-    function updateAlertCondition() {
+    function updateAlertPriceHint() {
       const symbol = document.getElementById('alertSymbol').value;
       const targetPrice = parseFloat(document.getElementById('alertTargetPrice').value);
-      const conditionSelect = document.getElementById('alertCondition');
-      const hintDiv = document.getElementById('alertConditionHint');
+      const hintDiv = document.getElementById('alertPriceHint');
       const currentPriceDiv = document.getElementById('alertCurrentPrice');
 
       // Get current price
@@ -1806,47 +1812,32 @@
       if (!priceData) {
         currentPriceDiv.textContent = 'Current: -';
         hintDiv.textContent = '';
-        // Reset dropdown to allow both options
-        conditionSelect.querySelector('option[value="above"]').disabled = false;
-        conditionSelect.querySelector('option[value="below"]').disabled = false;
         return;
       }
 
       const currentPrice = priceData.price;
       currentPriceDiv.textContent = `Current: $${currentPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 
-      // If no target price entered yet, don't restrict
+      // If no target price entered yet, clear hint
       if (!targetPrice || targetPrice <= 0) {
         hintDiv.textContent = '';
-        conditionSelect.querySelector('option[value="above"]').disabled = false;
-        conditionSelect.querySelector('option[value="below"]').disabled = false;
         return;
       }
 
-      // Auto-select and restrict based on current vs target price
+      // Show hint based on current vs target price
       if (targetPrice > currentPrice) {
-        // Target is higher than current → can only go "above"
-        conditionSelect.value = 'above';
-        conditionSelect.querySelector('option[value="above"]').disabled = false;
-        conditionSelect.querySelector('option[value="below"]').disabled = true;
-        hintDiv.innerHTML = '<span style="color: var(--green);">↗ Price needs to rise</span>';
+        const diff = ((targetPrice - currentPrice) / currentPrice * 100).toFixed(2);
+        hintDiv.innerHTML = `<span style="color: var(--green);">↗ +${diff}% from current</span>`;
       } else if (targetPrice < currentPrice) {
-        // Target is lower than current → can only go "below"
-        conditionSelect.value = 'below';
-        conditionSelect.querySelector('option[value="above"]').disabled = true;
-        conditionSelect.querySelector('option[value="below"]').disabled = false;
-        hintDiv.innerHTML = '<span style="color: var(--red);">↘ Price needs to fall</span>';
+        const diff = ((currentPrice - targetPrice) / currentPrice * 100).toFixed(2);
+        hintDiv.innerHTML = `<span style="color: var(--red);">↘ -${diff}% from current</span>`;
       } else {
-        // Target equals current price - allow both but show warning
-        conditionSelect.querySelector('option[value="above"]').disabled = false;
-        conditionSelect.querySelector('option[value="below"]').disabled = false;
-        hintDiv.innerHTML = '<span style="color: var(--text-muted);">⚠ Target equals current price</span>';
+        hintDiv.innerHTML = '<span style="color: var(--text-muted);">⚠ Equals current price</span>';
       }
     }
 
     async function createPriceAlert() {
       const symbol = document.getElementById('alertSymbol').value;
-      const condition = document.getElementById('alertCondition').value;
       const targetPrice = parseFloat(document.getElementById('alertTargetPrice').value);
       const email = document.getElementById('alertEmail').value;
 
@@ -1861,6 +1852,13 @@
       if (!email || !email.includes('@')) {
         statusDiv.innerHTML = '<div class="alert alert-danger small mb-0 mt-2">Please enter a valid email address</div>';
         return;
+      }
+
+      // Auto-determine condition based on current price vs target
+      const priceData = currentPrices[symbol];
+      let condition = 'above';  // default
+      if (priceData && priceData.price) {
+        condition = targetPrice > priceData.price ? 'above' : 'below';
       }
 
       statusDiv.innerHTML = '<div class="alert alert-info small mb-0 mt-2">Creating alert...</div>';
