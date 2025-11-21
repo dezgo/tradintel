@@ -288,11 +288,12 @@
         <div class="row g-2">
           <div class="col-md-3">
             <label class="form-label small">Symbol</label>
-            <select class="form-select form-select-sm" id="alertSymbol">
+            <select class="form-select form-select-sm" id="alertSymbol" onchange="updateAlertCondition()">
               <option value="BTC_USDT">BTC/USDT</option>
               <option value="ETH_USDT">ETH/USDT</option>
               <option value="SOL_USDT">SOL/USDT</option>
             </select>
+            <div class="form-text" id="alertCurrentPrice">Current: -</div>
           </div>
           <div class="col-md-2">
             <label class="form-label small">Condition</label>
@@ -303,7 +304,8 @@
           </div>
           <div class="col-md-3">
             <label class="form-label small">Target Price</label>
-            <input type="number" class="form-control form-control-sm" id="alertTargetPrice" placeholder="50000.00" step="0.01" min="0" />
+            <input type="number" class="form-control form-control-sm" id="alertTargetPrice" placeholder="50000.00" step="0.01" min="0" oninput="updateAlertCondition()" />
+            <div class="form-text" id="alertConditionHint"></div>
           </div>
           <div class="col-md-4">
             <label class="form-label small">Email</label>
@@ -1476,7 +1478,12 @@
 
     function refreshAll() {
       load();
-      loadPrices();
+      loadPrices().then(() => {
+        // Update alert condition after prices load
+        if (typeof updateAlertCondition === 'function') {
+          updateAlertCondition();
+        }
+      });
       loadPositions();
       loadRoundtrips();
       loadFees();
@@ -1729,6 +1736,59 @@
       } catch (e) {
         console.error('Failed to load price alerts:', e);
         document.getElementById('alertsList').innerHTML = '<div class="alert alert-danger small mb-0">Error loading alerts</div>';
+      }
+
+      // Update condition dropdown based on current prices
+      updateAlertCondition();
+    }
+
+    function updateAlertCondition() {
+      const symbol = document.getElementById('alertSymbol').value;
+      const targetPrice = parseFloat(document.getElementById('alertTargetPrice').value);
+      const conditionSelect = document.getElementById('alertCondition');
+      const hintDiv = document.getElementById('alertConditionHint');
+      const currentPriceDiv = document.getElementById('alertCurrentPrice');
+
+      // Get current price
+      const priceData = currentPrices[symbol];
+      if (!priceData) {
+        currentPriceDiv.textContent = 'Current: -';
+        hintDiv.textContent = '';
+        // Reset dropdown to allow both options
+        conditionSelect.querySelector('option[value="above"]').disabled = false;
+        conditionSelect.querySelector('option[value="below"]').disabled = false;
+        return;
+      }
+
+      const currentPrice = priceData.price;
+      currentPriceDiv.textContent = `Current: $${currentPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+
+      // If no target price entered yet, don't restrict
+      if (!targetPrice || targetPrice <= 0) {
+        hintDiv.textContent = '';
+        conditionSelect.querySelector('option[value="above"]').disabled = false;
+        conditionSelect.querySelector('option[value="below"]').disabled = false;
+        return;
+      }
+
+      // Auto-select and restrict based on current vs target price
+      if (targetPrice > currentPrice) {
+        // Target is higher than current → can only go "above"
+        conditionSelect.value = 'above';
+        conditionSelect.querySelector('option[value="above"]').disabled = false;
+        conditionSelect.querySelector('option[value="below"]').disabled = true;
+        hintDiv.innerHTML = '<span style="color: var(--green);">↗ Price needs to rise</span>';
+      } else if (targetPrice < currentPrice) {
+        // Target is lower than current → can only go "below"
+        conditionSelect.value = 'below';
+        conditionSelect.querySelector('option[value="above"]').disabled = true;
+        conditionSelect.querySelector('option[value="below"]').disabled = false;
+        hintDiv.innerHTML = '<span style="color: var(--red);">↘ Price needs to fall</span>';
+      } else {
+        // Target equals current price - allow both but show warning
+        conditionSelect.querySelector('option[value="above"]').disabled = false;
+        conditionSelect.querySelector('option[value="below"]').disabled = false;
+        hintDiv.innerHTML = '<span style="color: var(--text-muted);">⚠ Target equals current price</span>';
       }
     }
 
