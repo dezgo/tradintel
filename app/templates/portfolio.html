@@ -1656,6 +1656,18 @@
     // Price Alerts
     // ───────────────────────────────────────────────────────────────────────────
 
+    function initializePriceAlertForm() {
+      // Load saved email from localStorage
+      try {
+        const savedEmail = localStorage.getItem('tradintel_alert_email');
+        if (savedEmail) {
+          document.getElementById('alertEmail').value = savedEmail;
+        }
+      } catch (e) {
+        console.warn('Failed to load saved email from localStorage:', e);
+      }
+    }
+
     async function loadPriceAlerts() {
       try {
         const res = await fetch('/api/price-alerts');
@@ -1830,9 +1842,15 @@
         if (res.ok && data.success) {
           statusDiv.innerHTML = '<div class="alert alert-success small mb-0 mt-2">Alert created successfully!</div>';
 
-          // Clear form
+          // Save email to localStorage for next time
+          try {
+            localStorage.setItem('tradintel_alert_email', email);
+          } catch (e) {
+            console.warn('Failed to save email to localStorage:', e);
+          }
+
+          // Clear target price only (keep email for convenience)
           document.getElementById('alertTargetPrice').value = '';
-          document.getElementById('alertEmail').value = '';
 
           // Reload alerts
           setTimeout(() => {
@@ -1895,6 +1913,13 @@
 
         if (res.ok && data.success) {
           statusDiv.innerHTML = '<div class="alert alert-success small mb-0 mt-2">Test email sent! Check your inbox.</div>';
+
+          // Save email to localStorage for next time
+          try {
+            localStorage.setItem('tradintel_alert_email', email);
+          } catch (e) {
+            console.warn('Failed to save email to localStorage:', e);
+          }
         } else {
           statusDiv.innerHTML = `<div class="alert alert-danger small mb-0 mt-2">Failed to send test email: ${data.error || 'Unknown error'}</div>`;
         }
@@ -1909,6 +1934,9 @@
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+
+    // Initialize price alert form (synchronous)
+    initializePriceAlertForm();
 
     // Load strategies first (needed by renderWorkers)
     loadAvailableStrategies().then(() => {
