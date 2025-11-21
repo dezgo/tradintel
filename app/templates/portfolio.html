@@ -1689,34 +1689,71 @@
         // Group by status
         const activeAlerts = alerts.filter(a => a.status === 'active');
         const triggeredAlerts = alerts.filter(a => a.status === 'triggered');
-        const cancelledAlerts = alerts.filter(a => a.status === 'cancelled');
 
         let html = '';
 
-        // Active alerts
+        // Active alerts - grouped by symbol
         if (activeAlerts.length > 0) {
           html += '<div class="mb-3"><h4 class="small fw-bold text-success mb-2">Active Alerts</h4>';
-          html += '<div class="table-responsive"><table class="table table-sm table-hover mono small">';
-          html += '<thead><tr><th>Symbol</th><th>Condition</th><th>Target</th><th>Current</th><th>Email</th><th>Created</th><th>Actions</th></tr></thead><tbody>';
 
+          // Group alerts by symbol
+          const alertsBySymbol = {};
           activeAlerts.forEach(alert => {
-            const createdDate = new Date(alert.created_ts * 1000).toLocaleString();
-            const currentPrice = alert.last_checked_price ? alert.last_checked_price.toFixed(2) : '-';
-            html += `
-              <tr>
-                <td><span class="badge badge-active">${alert.symbol}</span></td>
-                <td>${alert.condition === 'above' ? '📈 Above' : '📉 Below'}</td>
-                <td>$${alert.target_price.toFixed(2)}</td>
-                <td>${currentPrice !== '-' ? '$' + currentPrice : '-'}</td>
-                <td class="text-muted">${alert.email}</td>
-                <td class="text-muted">${createdDate}</td>
-                <td>
-                  <button class="btn btn-sm btn-outline-danger" onclick="deletePriceAlert(${alert.id})" title="Delete">🗑️</button>
-                </td>
-              </tr>
-            `;
+            if (!alertsBySymbol[alert.symbol]) {
+              alertsBySymbol[alert.symbol] = [];
+            }
+            alertsBySymbol[alert.symbol].push(alert);
           });
-          html += '</tbody></table></div></div>';
+
+          // Sort symbols alphabetically
+          const symbols = Object.keys(alertsBySymbol).sort();
+
+          symbols.forEach(symbol => {
+            // Sort alerts within this symbol by target_price
+            const symbolAlerts = alertsBySymbol[symbol].sort((a, b) => a.target_price - b.target_price);
+
+            // Get current price for this symbol
+            const priceData = currentPrices[symbol];
+            const currentPrice = priceData ? priceData.price : null;
+
+            html += `<div class="mb-2">`;
+            html += `<div class="d-flex align-items-center mb-1">`;
+            html += `<span class="badge badge-active me-2">${symbol}</span>`;
+            if (currentPrice) {
+              html += `<span class="text-muted small">Current: $${currentPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>`;
+            }
+            html += `</div>`;
+            html += '<div class="table-responsive"><table class="table table-sm table-hover mono small mb-0">';
+            html += '<thead><tr><th>Condition</th><th>Target</th><th>Distance</th><th>Email</th><th>Created</th><th>Actions</th></tr></thead><tbody>';
+
+            symbolAlerts.forEach(alert => {
+              const createdDate = new Date(alert.created_ts * 1000).toLocaleString();
+
+              // Calculate distance from current price
+              let distance = '-';
+              let distanceClass = '';
+              if (currentPrice) {
+                const diff = alert.target_price - currentPrice;
+                const pct = (diff / currentPrice) * 100;
+                distance = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+                distanceClass = pct >= 0 ? 'text-success' : 'text-danger';
+              }
+
+              html += `
+                <tr>
+                  <td>${alert.condition === 'above' ? '📈 Above' : '📉 Below'}</td>
+                  <td>$${alert.target_price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                  <td class="${distanceClass}">${distance}</td>
+                  <td class="text-muted small">${alert.email}</td>
+                  <td class="text-muted small">${createdDate}</td>
+                  <td>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deletePriceAlert(${alert.id})" title="Delete">🗑️</button>
+                  </td>
+                </tr>
+              `;
+            });
+            html += '</tbody></table></div></div>';
+          });
         }
 
         // Triggered alerts (recent 5)
