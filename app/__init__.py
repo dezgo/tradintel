@@ -166,6 +166,31 @@ def create_app() -> Flask:
         _evolver_thread.start()
         print("[App] Genetic evolution started in background (24h cycle)")
 
+    # Start price alert monitoring in background (independent of trading timeframe)
+    if not os.getenv("APP_DISABLE_ALERTS"):
+        def _alert_loop():
+            import time
+            from app.alert_monitor import PriceAlertMonitor
+            from app.data import GateAdapter
+
+            gate = GateAdapter()
+            monitor = PriceAlertMonitor(gate)
+
+            while True:
+                try:
+                    results = monitor.run_check_if_ready()
+                    if results and results["triggered"] > 0:
+                        print(f"Price alerts: {results['triggered']} triggered, {results['checked']} checked")
+                except Exception as exc:
+                    print("Price alert check error:", exc)
+
+                # Sleep for 10 seconds before next check (monitor.should_check() handles 60s interval)
+                time.sleep(10)
+
+        _alert_thread = threading.Thread(target=_alert_loop, daemon=True)
+        _alert_thread.start()
+        print("[App] Price alert monitoring started (checks every 60 seconds)")
+
     if not os.getenv("APP_DISABLE_LOOP"):
         def _loop():
             from app.portfolio import TF
@@ -176,8 +201,6 @@ def create_app() -> Flask:
             SEC = 60 if TF == "1m" else 300 if TF == "5m" else 60  # fallback
             rebalance_counter = 0
             REBALANCE_INTERVAL = 60  # Auto-rebalance every 60 steps (bars)
-            alert_check_counter = 0
-            ALERT_CHECK_INTERVAL = 1  # Check alerts every 1 bar (every minute for 1m, every 5m for 5m)
 
             while True:
                 try:
@@ -251,20 +274,6 @@ def create_app() -> Flask:
                                 print(f"Auto-rebalance: moved {num_to_reassign} workers to {best_strategy}")
                         except Exception as exc:
                             print("Auto-rebalance error:", exc)
-
-                    # Check price alerts
-                    alert_check_counter += 1
-                    if alert_check_counter >= ALERT_CHECK_INTERVAL:
-                        alert_check_counter = 0
-                        try:
-                            from app.alert_monitor import check_price_alerts
-                            from app.data import GateAdapter
-                            gate = GateAdapter()
-                            results = check_price_alerts(gate)
-                            if results["triggered"] > 0:
-                                print(f"Price alerts: {results['triggered']} triggered, {results['checked']} checked")
-                        except Exception as exc:
-                            print("Price alert check error:", exc)
 
                     # sleep until a few seconds after the next bar boundary
                     now = time.time()
