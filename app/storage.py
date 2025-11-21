@@ -1333,5 +1333,26 @@ class Storage:
             self._conn.commit()
             return cur.rowcount > 0
 
+    def cleanup_old_triggered_alerts(self, days: int = 30) -> int:
+        """
+        Delete triggered alerts older than the specified number of days.
+
+        Args:
+            days: Number of days to keep triggered alerts (default: 30)
+
+        Returns:
+            Number of alerts deleted
+        """
+        import time
+
+        cutoff_ts = int(time.time()) - (days * 24 * 60 * 60)
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM price_alerts WHERE status = 'triggered' AND triggered_ts < ?",
+                (cutoff_ts,),
+            )
+            self._conn.commit()
+            return cur.rowcount
+
 
 store = Storage(_DB_DEFAULT)  # simple singleton

@@ -29,7 +29,8 @@ class PriceAlertMonitor:
                 'checked': int,
                 'triggered': int,
                 'errors': int,
-                'timestamp': int
+                'timestamp': int,
+                'cleaned_up': int
             }
         """
         now = int(time.time())
@@ -37,8 +38,18 @@ class PriceAlertMonitor:
             "checked": 0,
             "triggered": 0,
             "errors": 0,
+            "cleaned_up": 0,
             "timestamp": now,
         }
+
+        # Cleanup old triggered alerts (older than 30 days)
+        try:
+            cleaned = store.cleanup_old_triggered_alerts(days=30)
+            if cleaned > 0:
+                logger.info(f"Cleaned up {cleaned} old triggered alerts")
+                results["cleaned_up"] = cleaned
+        except Exception as e:
+            logger.error(f"Error cleaning up old triggered alerts: {e}")
 
         # Get all active alerts
         alerts = store.get_active_price_alerts()

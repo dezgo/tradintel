@@ -1766,13 +1766,14 @@
           });
         }
 
-        // Triggered alerts (recent 5)
+        // Triggered alerts (all, auto-deleted after 30 days)
         if (triggeredAlerts.length > 0) {
-          html += '<div class="mb-3"><h4 class="small fw-bold text-warning mb-2">Recently Triggered</h4>';
+          html += '<div class="mb-3"><h4 class="small fw-bold text-warning mb-2">Triggered Alerts</h4>';
+          html += '<div class="muted small mb-2">Automatically cleaned up after 30 days</div>';
           html += '<div class="table-responsive"><table class="table table-sm table-hover mono small">';
           html += '<thead><tr><th>Symbol</th><th>Target Price</th><th>Triggered At</th><th>Email</th><th>Actions</th></tr></thead><tbody>';
 
-          triggeredAlerts.slice(0, 5).forEach(alert => {
+          triggeredAlerts.forEach(alert => {
             const triggeredDate = new Date(alert.triggered_ts * 1000).toLocaleString();
             const directionIcon = alert.condition === 'above' ? '↗' : '↘';
             const conditionTooltip = alert.condition === 'above' ? 'Alert when price goes above target' : 'Alert when price goes below target';
