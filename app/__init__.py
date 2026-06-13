@@ -227,12 +227,21 @@ def create_app() -> Flask:
 
     if not os.getenv("APP_DISABLE_LOOP"):
         def _loop():
-            from app.portfolio import TF
+            # NOTE: app.portfolio has no module-level `TF` — the old
+            # `from app.portfolio import TF` raised ImportError on the very first
+            # line, which silently killed this thread and stopped the engine from
+            # ever stepping/trading. Read the timeframe from its real source instead.
+            from app.portfolio import _get_timeframe
             from app.strategies import MeanReversion, Breakout, TrendFollow, MR_GRID, BO_GRID, TF_GRID
             from app.storage import store
             import re
+            import traceback
 
-            SEC = 60 if TF == "1m" else 300 if TF == "5m" else 60  # fallback
+            TF = _get_timeframe()
+            # Loop poll period per timeframe. Longer frames are capped to hourly so
+            # we still re-check for a new bar promptly without spamming the API.
+            _TF_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600}
+            SEC = _TF_SECONDS.get(TF, 3600)
             rebalance_counter = 0
             REBALANCE_INTERVAL = 60  # Auto-rebalance every 60 steps (bars)
 
@@ -315,6 +324,7 @@ def create_app() -> Flask:
                     sleep_s = max(2.0, next_bar - now + 2)  # +2s buffer for data to arrive
                 except Exception as exc:  # noqa: BLE001
                     print("manager loop error:", exc)
+                    traceback.print_exc()
                     sleep_s = 5
                 time.sleep(sleep_s)
 

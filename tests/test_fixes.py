@@ -233,3 +233,23 @@ def test_evolution_survives_all_failed_evaluations(monkeypatch):
     result = evolver.evolve_generation()  # must not raise
     assert result == []
     assert len(evolver.population) == population_before
+
+
+# ── app/__init__.py: trading loop startup import ────────────────────────────
+def test_trading_loop_does_not_import_dead_TF():
+    """Regression: the loop did `from app.portfolio import TF`, but that name does
+    not exist — it raised ImportError on the loop thread's first line and silently
+    killed the engine (no stepping, no trading) on every startup.
+    """
+    import inspect
+    import app
+
+    src = inspect.getsource(app)
+    # Ignore comment lines (this fix is documented in a comment that mentions the
+    # old import by name); only real code lines count.
+    code = "\n".join(ln for ln in src.splitlines() if not ln.strip().startswith("#"))
+    assert "from app.portfolio import TF" not in code, "dead TF import reintroduced"
+
+    # The real source of the timeframe must be importable and usable.
+    from app.portfolio import _get_timeframe
+    assert isinstance(_get_timeframe(), str)
