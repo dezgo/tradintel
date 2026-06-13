@@ -1,3 +1,9 @@
+################################################################################
+# OUTDATED (kept for history): this diagram shows the old 3-manager / 81-bot
+# "rebalance every step" design. The system now runs evolved genetic strategies
+# under a single manager and rebalances every 5 steps. See ARCHITECTURE.md.
+################################################################################
+
 ================================================================================
                      TRADING BOT SYSTEM ARCHITECTURE
 ================================================================================

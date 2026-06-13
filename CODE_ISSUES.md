@@ -1,3 +1,8 @@
+> ⚠️ **OUTDATED (kept for history).** Line numbers and several issues here refer
+> to the superseded 81-bot design (e.g. `min_notional=$10` is now $100, rebalancing
+> is every 5 steps not every step). For the current state and the bugs that were
+> actually fixed, see **ARCHITECTURE.md** and the test suite in `tests/`.
+
 # Critical Code Snippets & Issues
 
 ## ISSUE #1: Minimum Trade Threshold Too Low

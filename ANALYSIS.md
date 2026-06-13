@@ -1,3 +1,8 @@
+> ⚠️ **OUTDATED (kept for history).** This describes the superseded 81-bot,
+> 3-fixed-strategy, rebalance-every-step design. The system now runs evolved
+> genetic strategies under a single manager. See **ARCHITECTURE.md** for the
+> current design.
+
 # Trading Web App - Comprehensive Codebase Analysis
 
 ## Executive Summary
