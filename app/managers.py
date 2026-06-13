@@ -97,6 +97,10 @@ class PortfolioManager:
             self._rebalance_across_strategies()
         self._step_counter += 1
 
+    def total_equity(self) -> float:
+        """Current mark-to-market equity across every bot in every manager."""
+        return sum(b.metrics.equity for m in self.managers for b in m.bots)
+
     def snapshot(self) -> Dict:
         counts = store.trade_counts()  # DB authoritative counts
 

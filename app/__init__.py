@@ -248,6 +248,21 @@ def create_app() -> Flask:
             while True:
                 try:
                     _pm.step()
+
+                    # Risk circuit-breaker: auto-pause trading if portfolio
+                    # drawdown from its peak exceeds max_drawdown_pct. Opt-in
+                    # (disabled when the threshold is 0) and fully guarded so it
+                    # can never take down the loop.
+                    try:
+                        from app.risk import DrawdownCircuitBreaker
+                        res = DrawdownCircuitBreaker().check(_pm.total_equity())
+                        if res.tripped:
+                            print(f"⛔ Drawdown circuit-breaker TRIPPED at "
+                                  f"{res.drawdown_pct:.1f}% (limit {res.threshold_pct:.1f}%); "
+                                  f"trading paused.")
+                    except Exception as risk_exc:
+                        print("risk check error:", risk_exc)
+
                     # periodically refresh parameter sets with walk-forward
                     data = getattr(_pm.managers[0].bots[0], "data", None)
                     if data is not None:
@@ -860,6 +875,57 @@ def create_app() -> Flask:
             "trading_timeframe": timeframe,
             "num_active_strategies": int(num_strategies),
             "execution_mode": execution_mode
+        })
+
+    @app.get("/api/risk")
+    @login_required
+    def get_risk_status():
+        """Drawdown circuit-breaker status: threshold, peak equity, current drawdown."""
+        from app.risk import DrawdownCircuitBreaker
+        equity = _pm.total_equity() if _pm is not None else 0.0
+        s = DrawdownCircuitBreaker().status(equity)
+        return jsonify({
+            "enabled": s.enabled,
+            "max_drawdown_pct": s.threshold_pct,
+            "peak_equity": s.peak_equity,
+            "current_equity": s.current_equity,
+            "drawdown_pct": round(s.drawdown_pct, 2),
+            "tripped_ts": s.tripped_ts,
+            "trading_paused": s.paused,
+        })
+
+    @app.post("/api/risk")
+    @login_required
+    def set_risk():
+        """Configure the drawdown circuit-breaker.
+
+        Body: {"max_drawdown_pct": <float>}  -> set threshold (0 disables)
+              {"reset_peak": true}           -> re-arm: reset high-water mark to current equity
+        """
+        from app.risk import DrawdownCircuitBreaker
+        data = request.json or {}
+        breaker = DrawdownCircuitBreaker()
+
+        if "max_drawdown_pct" in data:
+            try:
+                pct = float(data["max_drawdown_pct"])
+            except (TypeError, ValueError):
+                return jsonify({"error": "max_drawdown_pct must be a number"}), 400
+            if pct < 0:
+                return jsonify({"error": "max_drawdown_pct must be >= 0"}), 400
+            breaker.set_threshold(pct)
+
+        if data.get("reset_peak"):
+            equity = _pm.total_equity() if _pm is not None else 0.0
+            breaker.reset_peak(equity)
+
+        s = breaker.status(_pm.total_equity() if _pm is not None else 0.0)
+        return jsonify({
+            "success": True,
+            "enabled": s.enabled,
+            "max_drawdown_pct": s.threshold_pct,
+            "peak_equity": s.peak_equity,
+            "drawdown_pct": round(s.drawdown_pct, 2),
         })
 
     @app.post("/api/set-capital-limit")
