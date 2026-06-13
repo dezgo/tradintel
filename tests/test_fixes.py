@@ -180,3 +180,56 @@ def test_todays_pnl_counts_roundtrip_closed_today():
     assert "close_ts" in roundtrips[0]
 
     assert store.calculate_todays_pnl() == pytest.approx(10.0, abs=1e-6)
+
+
+# ── app/execution.py: maker vs taker fee ────────────────────────────────────
+def test_maker_fill_is_free_taker_fill_is_charged():
+    from app.execution import estimate_fill_fee
+
+    # Fill at the limit price -> maker -> no fee.
+    fee, is_maker = estimate_fill_fee(filled_qty=2.0, avg_price=100.0, limit_price=100.0)
+    assert is_maker is True
+    assert fee == 0.0
+
+    # Fill meaningfully away from the limit price -> taker -> ~0.1%.
+    fee, is_maker = estimate_fill_fee(filled_qty=2.0, avg_price=101.0, limit_price=100.0)
+    assert is_maker is False
+    assert fee == pytest.approx(2.0 * 101.0 * 0.001)
+
+
+# ── app/managers.py: rebalance guard ────────────────────────────────────────
+def test_rebalance_leaves_allocations_when_strategy_equity_zero():
+    """With no equity yet (fresh bots, no bars), rebalancing must not zero allocations."""
+    from app.managers import StrategyManager
+
+    bots = []
+    for i in range(3):
+        b = TradingBot(
+            f"b{i}", "BTC_USDT", "1m", _ConstStrategy(0.0),
+            _StubData(_bars([100.0])), _StubExec({"status": "filled", "filled_qty": 0}),
+            allocation=1000.0,
+        )
+        b.metrics.equity = 0.0  # nothing marked-to-market yet
+        bots.append(b)
+
+    mgr = StrategyManager(name="m", bots=bots)
+    mgr._rebalance_within_strategy()
+
+    assert all(b.allocation == 1000.0 for b in mgr.bots)
+
+
+# ── app/genetic_evolution.py: empty-survivors guard ─────────────────────────
+def test_evolution_survives_all_failed_evaluations(monkeypatch):
+    """If every genome fails to evaluate, evolve_generation must not crash."""
+    from app.genetic_evolution import GeneticEvolver
+
+    evolver = GeneticEvolver(population_size=4, survivors=2)
+    evolver.initialize_population()
+    population_before = len(evolver.population)
+
+    # Simulate a total data/network outage: every evaluation returns None.
+    monkeypatch.setattr(evolver, "evaluate_genome", lambda genome, symbol: None)
+
+    result = evolver.evolve_generation()  # must not raise
+    assert result == []
+    assert len(evolver.population) == population_before

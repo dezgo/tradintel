@@ -326,6 +326,14 @@ class GeneticEvolver:
         # Select survivors (top performers across all symbols)
         survivors = all_results[:self.survivors]
 
+        if not survivors:
+            # Every genome failed to evaluate this round (no data / network down).
+            # Don't breed from an empty pool — that crashed on random.choice([]).
+            # Keep the current population and retry on the next generation.
+            print("[Evolution] No genomes evaluated successfully; keeping current "
+                  "population for next generation.")
+            return []
+
         print(f"\n[Evolution] Generation {self.generation} complete!")
         print(f"[Evolution] Top performer overall:")
         if survivors:
@@ -349,6 +357,11 @@ class GeneticEvolver:
         """
         Create next generation from survivors using mutation and crossover.
         """
+        if not survivors:
+            # Defensive: never breed from an empty pool (random.choice would raise).
+            # Fall back to the existing population, or fresh seeds as a last resort.
+            survivors = self.population[:self.survivors] or create_seed_genomes()
+
         next_population = []
 
         # Keep survivors

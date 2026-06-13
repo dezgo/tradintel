@@ -74,6 +74,10 @@ class StrategyManager:
         fracs = [f / s for f in fracs]
         # apply new target allocations proportionally to current strategy AUM
         strat_equity = sum(b.metrics.equity for b in self.bots)
+        if strat_equity <= 0:
+            # No equity yet (e.g. bots just created, no bars processed). Don't zero
+            # out every allocation — leave existing targets untouched.
+            return
         for b, f in zip(self.bots, fracs):
             b.allocation = strat_equity * f
 

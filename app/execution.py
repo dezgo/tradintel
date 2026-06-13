@@ -16,6 +16,25 @@ except ImportError:
     CCXT_AVAILABLE = False
 
 
+def estimate_fill_fee(
+    filled_qty: float,
+    avg_price: float,
+    limit_price: float,
+    taker_rate: float = 0.001,
+) -> tuple[float, bool]:
+    """Estimate (fee, is_maker) for a limit-order fill.
+
+    A resting limit order that fills at (or within 0.01% of) its limit price is a
+    maker fill, which is free on Binance; anything else is treated as a taker fill
+    paying ``taker_rate``. Extracted so the fee logic is unit-testable without a
+    live exchange.
+    """
+    notional = filled_qty * avg_price
+    is_maker = abs(avg_price - limit_price) < (limit_price * 0.0001)
+    fee = 0.0 if is_maker else notional * taker_rate
+    return fee, is_maker
+
+
 class PaperExec(ExecutionClient):
     """
     Paper trading execution client with realistic fee simulation.
@@ -360,13 +379,12 @@ class BinanceTestnetExec(ExecutionClient):
                     cumm_quote = float(order_status.get('cummulativeQuoteQty', 0))
                     avg_price = cumm_quote / filled_qty if filled_qty > 0 else limit_price
 
-                    # Calculate fee (Binance includes this in fills array, but for simplicity use estimated fee)
-                    # Testnet might not have accurate fee info, so estimate
+                    # Estimate the fee (testnet doesn't always report accurate fees).
+                    # Maker fills are free; only taker fills pay ~0.1%. Previously the
+                    # taker rate was charged unconditionally, contradicting the whole
+                    # reason we place limit orders (maker fees) and overstating costs.
                     notional = filled_qty * avg_price
-                    fee = notional * 0.001  # 0.1% estimate for taker, 0% for maker
-
-                    # Check if maker order (if price is different from limit, it was taker)
-                    is_maker = abs(avg_price - limit_price) < (limit_price * 0.0001)  # Within 0.01%
+                    fee, is_maker = estimate_fill_fee(filled_qty, avg_price, limit_price)
 
                     # Record trade
                     store.record_trade(
