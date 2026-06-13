@@ -1,6 +1,7 @@
 # app/storage.py
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -559,9 +560,11 @@ class Storage:
 
         todays_pnl = 0.0
         for rt in roundtrips:
-            # Check if round-trip closed today (use exit_ts)
-            exit_ts = rt.get('exit_ts', 0)
-            if exit_ts < today_ts:
+            # Check if round-trip closed today. list_roundtrips emits the close
+            # timestamp under 'close_ts'; the old 'exit_ts' key never matched, so
+            # today's P&L was permanently 0.
+            close_ts = rt.get('close_ts', 0)
+            if close_ts < today_ts:
                 continue
 
             symbol = rt.get('symbol', '')
@@ -1068,9 +1071,11 @@ class Storage:
         seen_pairs = set()  # Track (symbol, genome_hash) to ensure uniqueness
 
         for strategy in candidates:
-            # Create a deterministic hash of the genome for comparison
+            # Create a deterministic hash of the genome for comparison.
+            # Built-in hash() is salted per-process (PYTHONHASHSEED), so it gave
+            # different values across restarts and let duplicate genomes through.
             genome_str = json.dumps(strategy["genome"], sort_keys=True)
-            genome_hash = hash(genome_str)
+            genome_hash = hashlib.md5(genome_str.encode()).hexdigest()
 
             # Key is (symbol, genome_hash) - ensures diversity across symbols AND genomes
             key = (strategy["symbol"], genome_hash)

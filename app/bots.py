@@ -175,44 +175,65 @@ class TradingBot:
             # Execute limit order
             result = self.exec.limit_order(self.symbol, side, trade_qty, limit_price)
 
-            # 3c) Update cash/position accounting including fees
-            filled_qty = result.get("filled_qty", trade_qty)
+            # 3c) Update cash/position accounting including fees.
+            # Only book a fill when the order actually filled. Every limit_order
+            # implementation returns an explicit status ("filled"/"cancelled"/"timeout")
+            # and filled_qty on all paths, so default filled_qty to 0.0: a missing/zero
+            # fill must NOT be booked as the intended quantity (that previously inflated
+            # positions and corrupted cash on timed-out or cancelled orders).
+            status = result.get("status", "filled")
+            filled_qty = result.get("filled_qty", 0.0)
             avg_price = result.get("avg_price", limit_price)
             fee = result.get("fee", 0.0)
             is_maker = result.get("is_maker", False)
 
-            if side == "buy":
-                total_cost = filled_qty * avg_price + fee  # cost + fees
-                self.metrics.cash -= total_cost
-                self.metrics.pos_qty += filled_qty
-            else:  # sell
-                proceeds = filled_qty * avg_price - fee  # proceeds minus fees
-                self.metrics.cash += proceeds
-                self.metrics.pos_qty -= filled_qty
+            if status != "filled" or filled_qty <= 0:
+                _log_decision(self.name, self.symbol, "trade_unfilled", {
+                    "signal": target_exp,
+                    "side": side,
+                    "intended_qty": trade_qty,
+                    "limit_price": limit_price,
+                    "status": status,
+                    "filled_qty": filled_qty,
+                    "strategy": type(self.strategy).__name__
+                })
+            else:
+                if side == "buy":
+                    total_cost = filled_qty * avg_price + fee  # cost + fees
+                    self.metrics.cash -= total_cost
+                    self.metrics.pos_qty += filled_qty
+                else:  # sell
+                    proceeds = filled_qty * avg_price - fee  # proceeds minus fees
+                    self.metrics.cash += proceeds
+                    self.metrics.pos_qty -= filled_qty
 
-            self.metrics.trades += 1
-            self._last_trade_ts = now  # Update last trade timestamp
+                self.metrics.trades += 1
+                self._last_trade_ts = now  # Update last trade timestamp
 
-            # Log the executed trade
-            _log_decision(self.name, self.symbol, "trade_executed", {
-                "signal": target_exp,
-                "side": side,
-                "quantity": filled_qty,
-                "limit_price": limit_price,
-                "fill_price": avg_price,
-                "fee": fee,
-                "is_maker": is_maker,
-                "notional": filled_qty * avg_price,
-                "new_position": self.metrics.pos_qty,
-                "strategy": type(self.strategy).__name__
-            })
+                # Log the executed trade
+                _log_decision(self.name, self.symbol, "trade_executed", {
+                    "signal": target_exp,
+                    "side": side,
+                    "quantity": filled_qty,
+                    "limit_price": limit_price,
+                    "fill_price": avg_price,
+                    "fee": fee,
+                    "is_maker": is_maker,
+                    "notional": filled_qty * avg_price,
+                    "new_position": self.metrics.pos_qty,
+                    "strategy": type(self.strategy).__name__
+                })
 
         # 4) Mark-to-market
         self.metrics.avg_price = price
         self.metrics.equity = self.metrics.cash + self.metrics.pos_qty * price
 
-        # 5) Score (EMA of return) with clamp for UI readability
-        ret = (self.metrics.equity - self.allocation) / max(1e-9, self.allocation)
+        # 5) Score (EMA of return) with clamp for UI readability.
+        # Measure return against the FIXED starting baseline, not the dynamic
+        # (rebalanced) allocation. Using self.allocation here meant that giving a
+        # winning bot more capital immediately depressed its score, causing the
+        # rebalancer to penalise its own best performers.
+        ret = (self.metrics.equity - self.starting_allocation) / max(1e-9, self.starting_allocation)
         alpha = 0.1
         self.metrics.score = (1 - alpha) * self.metrics.score + alpha * ret
         self.metrics.score = max(-0.2, min(0.2, self.metrics.score))

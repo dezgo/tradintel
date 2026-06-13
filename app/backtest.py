@@ -8,6 +8,22 @@ from typing import List, Dict, Any, Optional
 from app.core import Bar, Strategy, DataProvider
 
 
+# Number of bars in a calendar year for each timeframe, used to annualize the
+# Sharpe ratio. Crypto trades 24/7, so daily counts use 365.
+_BARS_PER_YEAR = {
+    "1m": 365 * 24 * 60,
+    "3m": 365 * 24 * 20,
+    "5m": 365 * 24 * 12,
+    "15m": 365 * 24 * 4,
+    "30m": 365 * 24 * 2,
+    "1h": 365 * 24,
+    "4h": 365 * 6,
+    "8h": 365 * 3,
+    "1d": 365,
+    "7d": 52,
+}
+
+
 @dataclass
 class Trade:
     """Represents a single trade execution during backtest."""
@@ -83,6 +99,7 @@ class Backtester:
         self.trades: List[Trade] = []
         self.equity_curve: List[tuple[int, float]] = []  # (timestamp, equity)
         self.bars_processed: List[Bar] = []
+        self.timeframe: str = "1d"  # set per-run; default for safety
 
     def run(
         self,
@@ -116,6 +133,7 @@ class Backtester:
         self.trades = []
         self.equity_curve = []
         self.bars_processed = []
+        self.timeframe = timeframe  # used to annualize the Sharpe ratio correctly
 
         # Fetch historical bars from cache or provider
         # Pass start_ts and end_ts to get the right date range
@@ -224,10 +242,11 @@ class Backtester:
                 variance = sum((r - avg_return) ** 2 for r in returns) / len(returns)
                 std_dev = math.sqrt(variance)
 
-                # Annualize (assuming 1m bars = 1440 bars/day, 365 days/year)
+                # Annualize by scaling with sqrt of periods per year for the
+                # ACTUAL timeframe. Hardcoding 1m bars wildly inflated the Sharpe
+                # for the 1h/1d backtests the optimizer actually runs.
                 if std_dev > 1e-9:
-                    # Simplified: scale by sqrt of periods per year
-                    periods_per_year = 365 * 24 * 60  # 1m bars per year
+                    periods_per_year = _BARS_PER_YEAR.get(getattr(self, "timeframe", "1d"), 365)
                     metrics.sharpe_ratio = (avg_return * math.sqrt(periods_per_year)) / std_dev
 
         # Max drawdown

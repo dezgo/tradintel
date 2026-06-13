@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import secrets
 import threading
 import time
+from urllib.parse import urlparse
 from flask import Flask, jsonify, render_template, redirect, url_for, request
 from flask_login import LoginManager, login_required, current_user
 from app.portfolio import build_portfolio
@@ -119,8 +121,21 @@ def _initialize_presets():
 def create_app() -> Flask:
     app = Flask(__name__)
 
-    # Configure Flask-Login
-    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', os.urandom(24).hex())
+    # Configure Flask-Login.
+    # Prefer the SECRET_KEY env var. If it is absent, fall back to a key persisted
+    # in the DB rather than os.urandom(): a random per-process key silently logged
+    # everyone out on every restart and broke sessions entirely across multiple
+    # gunicorn workers (each worker getting a different key).
+    secret_key = os.getenv('SECRET_KEY')
+    if not secret_key:
+        from app.storage import store
+        secret_key = store.get_setting('flask_secret_key')
+        if not secret_key:
+            secret_key = secrets.token_hex(32)
+            store.set_setting('flask_secret_key', secret_key)
+            print("WARNING: SECRET_KEY env var not set; generated and persisted a "
+                  "key in the DB. Set SECRET_KEY in your environment for production.")
+    app.config['SECRET_KEY'] = secret_key
 
     login_manager = LoginManager()
     login_manager.init_app(app)
@@ -131,6 +146,25 @@ def create_app() -> Flask:
     def load_user(user_id):
         """Load user for Flask-Login session management."""
         return User.get_configured_user()
+
+    @app.before_request
+    def _block_cross_origin_writes():
+        """CSRF mitigation: reject state-changing requests that come from another site.
+
+        Browsers always attach an Origin (and usually Referer) header to cross-site
+        POST/DELETE requests, so comparing it against our own host defeats the classic
+        CSRF vector (a malicious page silently POSTing to /api/liquidate-all). We only
+        block when the header is present AND mismatched, which leaves same-site browser
+        requests and header-less programmatic clients (curl/scripts, still gated by
+        @login_required) working.
+        """
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return None
+        source = request.headers.get("Origin") or request.headers.get("Referer")
+        if source:
+            if urlparse(source).netloc != request.host:
+                return jsonify({"error": "Cross-origin request blocked"}), 403
+        return None
 
     global _pm, _runner_thread, _optimizer_thread, _evolver_thread
     _pm = build_portfolio()
